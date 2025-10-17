@@ -1,0 +1,79 @@
+# Prefect Deployment Configuration
+# This file defines how flows are deployed and scheduled
+
+# Prefect server/cloud configuration
+name: parliament-explorer
+prefect-version: 3.4.24
+
+# Build configuration
+build: null
+
+# Pull configuration (for retrieving flow code)
+pull:
+  - prefect.deployments.steps.set_working_directory:
+      directory: /app
+
+# Push configuration (for storing flow code)
+push: null
+
+# Deployment definitions
+deployments:
+  # Hourly bill fetching
+  - name: fetch-bills-hourly
+    entrypoint: src/prefect_flows/bill_flows.py:fetch_latest_bills_flow
+    work_pool:
+      name: default-agent-pool
+    schedule:
+      cron: "0 * * * *"  # Every hour at minute 0
+      timezone: "UTC"
+    parameters:
+      limit: 50
+    tags:
+      - production
+      - bills
+      - hourly
+    description: "Fetch latest 50 bills every hour to keep data fresh"
+
+  # Daily bill fetching
+  - name: fetch-bills-daily
+    entrypoint: src/prefect_flows/bill_flows.py:fetch_latest_bills_flow
+    work_pool:
+      name: default-agent-pool
+    schedule:
+      cron: "0 2 * * *"  # Daily at 2:00 AM UTC
+      timezone: "UTC"
+    parameters:
+      limit: 100
+    tags:
+      - production
+      - bills
+      - daily
+    description: "Fetch latest 100 bills daily at 2 AM UTC"
+
+  # Daily monitoring
+  - name: monitor-daily
+    entrypoint: src/prefect_flows/bill_flows.py:monitor_fetch_operations_flow
+    work_pool:
+      name: default-agent-pool
+    schedule:
+      cron: "0 3 * * *"  # Daily at 3:00 AM UTC (after fetch)
+      timezone: "UTC"
+    parameters:
+      hours_back: 24
+    tags:
+      - production
+      - monitoring
+      - daily
+    description: "Monitor fetch operations daily at 3 AM UTC"
+
+  # On-demand parliament/session backfill
+  - name: backfill-parliament-session
+    entrypoint: src/prefect_flows/bill_flows.py:fetch_parliament_session_bills_flow
+    work_pool:
+      name: default-agent-pool
+    # No schedule - run manually
+    tags:
+      - backfill
+      - bills
+      - manual
+    description: "Backfill all bills from a specific parliament and session (manual trigger)"

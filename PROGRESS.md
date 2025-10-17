@@ -66,21 +66,24 @@ The core data ingestion pipeline is **production-ready** with full integration f
   - Transaction management
   - Created vs updated differentiation
 
-### 6. **Orchestration Layer** (Dagster)
-- ✅ **Dagster Assets**:
-  - `fetch_latest_bills`: Periodic refresh of recent bills
-  - `fetch_parliament_session_bills`: Backfill historical data
-  - `monitor_fetch_operations`: Monitor pipeline health
+### 6. **Orchestration Layer** (Prefect)
+
+- ✅ **Prefect Flows**:
+  - `fetch_latest_bills_flow`: Periodic refresh of recent bills
+  - `fetch_parliament_session_bills_flow`: Backfill historical data
+  - `monitor_fetch_operations_flow`: Monitor pipeline health
   
-- ✅ **Dagster Jobs & Schedules**:
-  - `fetch_bills_hourly`: Every hour (disabled by default)
-  - `fetch_bills_daily`: Daily at 2 AM (disabled by default)
-  - `monitor_daily`: Daily at 3 AM (disabled by default)
+- ✅ **Prefect Deployments**:
+  - `fetch-bills-hourly`: Every hour (cron: 0 * * * *)
+  - `fetch-bills-daily`: Daily at 2 AM UTC (cron: 0 2 * * *)
+  - `monitor-daily`: Daily at 3 AM UTC (cron: 0 3 * * *)
+  - `backfill-parliament-session`: Manual trigger for backfills
   
-- ✅ **Instance Configuration**:
-  - SQLite for local development
-  - PostgreSQL support for production
-  - Workspace YAML for code location
+- ✅ **Configuration**:
+  - prefect.yaml for deployment definitions
+  - Support for Prefect Cloud and self-hosted server
+  - PostgreSQL backend for flow run history
+  - Redis for result caching (optional)
 
 ### 7. **Testing & Validation**
 - ✅ **Integration Test** (`test_integration.py`):
@@ -105,9 +108,15 @@ The core data ingestion pipeline is **production-ready** with full integration f
 
 - ✅ **Dagster README**: Orchestration setup guide
   - Quick start, asset descriptions, deployment instructions
+  - **⚠️ DEPRECATED - Migrated to Prefect**
+
+- ✅ **Prefect README**: Orchestration setup guide  
+  - Quick start, flow descriptions, deployment instructions
+  - Cloud and self-hosted server configurations
 
 - ✅ **Updated requirements.txt**:
   - All dependencies documented and pinned
+  - Prefect 3.4.24 with Redis support
 
 ---
 
@@ -130,16 +139,16 @@ BillModel (SQLAlchemy ORM)
 SQLite (local) / PostgreSQL (production)
 ```
 
-### Orchestration (Dagster)
+### Orchestration (Prefect)
 ```
-Dagster Schedule (cron)
-    ↓
-Dagster Job
-    ↓
-Dagster Asset (fetch_latest_bills)
-    ↓
+Prefect Cloud/Server (Scheduler + UI)
+    ↓ API
+Prefect Worker (Executor)
+    ↓ Runs flows
+Prefect Flows (fetch_latest_bills_flow, etc.)
+    ↓ Uses
 BillIntegrationService
-    ↓
+    ↓ Persists to
 Database + FetchLog
 ```
 
@@ -204,12 +213,15 @@ python -m alembic upgrade head
 # 3. Run integration test
 python test_integration.py
 
-# 4. Start Dagster UI
-$env:DAGSTER_HOME = "dagster_home"
-python -m dagster dev -f workspace.yaml
+# 4. Start Prefect server (local development)
+$env:PREFECT_API_URL = "http://127.0.0.1:4200/api"
+prefect server start
 
-# 5. Manually materialize asset or enable schedule
-# Open http://localhost:3000
+# 5. Run a flow manually
+python -m src.prefect_flows.bill_flows
+
+# Or deploy flows
+prefect deploy --all
 ```
 
 ### Production (Railway)
@@ -222,15 +234,19 @@ DB_DATABASE=railway
 DB_USERNAME=postgres
 DB_PASSWORD=${{ RAILWAY_DB_PASSWORD }}
 
-DAGSTER_HOME=/app/dagster_home
-DAGSTER_POSTGRES_URL=postgresql://user:pass@host:port/dagster
+PREFECT_API_URL=https://prefect-production-8527.up.railway.app/api
+# Or use Prefect Cloud
+# PREFECT_API_URL=https://api.prefect.cloud/api/accounts/{account_id}/workspaces/{workspace_id}
+# PREFECT_API_KEY=your_prefect_cloud_api_key
 
 # 2. Run migrations
 python -m alembic upgrade head
 
-# 3. Start Dagster daemon and webserver
-dagster-daemon run &
-dagster-webserver -h 0.0.0.0 -p 3000 -f workspace.yaml
+# 3. Deploy flows
+prefect deploy --all
+
+# 4. Start Prefect worker
+prefect worker start --pool default-agent-pool
 ```
 
 ---
@@ -240,8 +256,8 @@ dagster-webserver -h 0.0.0.0 -p 3000 -f workspace.yaml
 ### Immediate
 1. ✅ ~~Integration Service~~ (DONE)
 2. ✅ ~~Alembic Migrations~~ (DONE)
-3. ✅ ~~Dagster Assets~~ (DONE)
-4. ⏭️ **Railway Deployment** - Deploy to production
+3. ✅ ~~Prefect Flows~~ (DONE - Migrated from Dagster)
+4. ⏭️ **Railway Deployment** - Deploy to production with Prefect
 5. ⏭️ **Politician Pipeline** - Parallel to bills (fetch → enrich → persist)
 
 ### Short-Term
@@ -275,24 +291,24 @@ truecivic/
 │   │   ├── session.py         # Database connection
 │   │   ├── config.py          # Database configuration
 │   │   └── repositories/      # Data access layer
-│   │       └── bill_repository.py
+│   │       ├── bill_repository.py
+│   │       └── fetch_log_repository.py
 │   ├── services/              # Integration layer
 │   │   └── bill_integration_service.py
-│   ├── dagster_assets/        # Orchestration layer
-│   │   ├── bill_assets.py
-│   │   └── definitions.py
+│   ├── prefect_flows/         # Orchestration layer
+│   │   ├── __init__.py
+│   │   └── bill_flows.py
 │   └── config.py              # Application configuration
 ├── alembic/                   # Database migrations
 │   ├── versions/
 │   │   └── 7bd692ce137c_initial_schema_*.py
 │   ├── env.py
 │   └── README.md
-├── dagster_home/              # Dagster instance
-│   ├── dagster.yaml
+├── prefect_home/              # Prefect documentation
 │   └── README.md
 ├── test_integration.py        # Integration tests
 ├── test_database_layer.py     # Database tests
-├── workspace.yaml             # Dagster workspace
+├── prefect.yaml               # Prefect deployment config
 ├── requirements.txt           # Dependencies
 ├── .env.example               # Configuration template
 └── README.md                  # Project overview
