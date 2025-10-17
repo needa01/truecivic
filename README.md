@@ -24,6 +24,52 @@ Parliament Explorer provides a mobile-first interface to explore federal Parliam
 6. **Summarizer** - RAG pipeline for bill summaries
 7. **Frontend** - Next.js mobile-first application
 
++-------------------------+ +----------------------+
+| Parliament Sources | | LegisInfo / Hansard |
+| (XML/HTML/JSON) | | Committees / Votes |
++------------+------------+ +-----------+----------+
+| |
+v v
++------------------+ +--------------+
+| Fetchers (Py) | | Webhooks* |
+| Airflow Tasks | | (if any) |
++---------+--------+ +------+-------+
+| |
+v v
++------------- Kafka -------------------------+
+| topics: raw_xml, parsed, upserts, events |
++---------+--------------------+--------------+
+| |
+v v
++----------------+ +---------------------+
+| Parser/Normalizer | | Content Extractor |
+| (Py, FastAPI svc) | | (chunk + embed) |
++---------+----------+ +----------+----------+
+| |
+v v
++-------------+ +--------------------+
+| Postgres |<------>| Vector DB (pgvector)
+| (OLTP) | refs | or Qdrant |
++------+------+ +----------+---------+
+| |
++----------+---------+ |
+| Materialized Views| |
+| & Rankings | |
++----------+---------+ |
+| |
+v v
++-------------+ +----------------+
+| API Layer | | Summarizer |
+| (GraphQL + |<---------->| (OpenAI + RAG)|
+| REST) | queries +--------+-------+
++------+------+ |
+| |
+v v
++-----------+ +-----------+
+| Next.js |<--------------| Redis |
+| Frontend | cache/API | cache |
++-----------+ +-----------+
+
 ### Key Design Principles
 
 - **Multi-jurisdiction from day one**: Namespaced data model supports federal House, Senate, and provinces without schema changes
