@@ -20,18 +20,20 @@
 - [x] Identify data gaps vs our requirements
 - [x] **DECISION: HYBRID - OpenParliament as primary + LEGISinfo enrichment**
 
-**P0.2: Compare with Official Sources**
-- [ ] Explore LEGISinfo structure (https://www.parl.ca/legisinfo)
-- [ ] Explore Hansard structure (https://www.ourcommons.ca/DocumentViewer)
-- [ ] Explore Committee pages
-- [ ] Document what each source provides uniquely
-- [ ] Create source matrix: Entity → Best Source
+**P0.2: Compare with Official Sources** ✅ COMPLETED
+- [x] Explore LEGISinfo structure (https://www.parl.ca/legisinfo)
+- [x] Explore Hansard structure (https://www.ourcommons.ca/DocumentViewer)
+- [x] Explore Committee pages
+- [x] Document what each source provides uniquely
+- [x] Create source matrix: Entity → Best Source
+- [x] **DECISION: Hybrid confirmed - LEGISinfo for tags/committees, Parliament.ca for meetings**
 
-**P0.3: Define Adapter Strategy**
-- [ ] Choose primary data source per entity type
-- [ ] Design adapter interface (unified response format)
-- [ ] Plan for data enrichment (combining sources)
-- [ ] Document update frequencies per source
+**P0.3: Define Adapter Strategy** ✅ COMPLETED
+- [x] Choose primary data source per entity type
+- [x] Design adapter interface (unified response format)
+- [x] Plan for data enrichment (combining sources)
+- [x] Document update frequencies per source
+- [x] **ARCHITECTURE: BaseAdapter protocol with AdapterResponse[T], rate limiting, retry logic**
 
 #### 📋 Next Steps
 

@@ -1,37 +1,42 @@
 # Parliament Explorer - Project Status
 
-**Last Updated**: October 17, 2025  
+**Last Updated**: January 17, 2025  
 **Phase**: Discovery & Setup  
-**Status**: 🟢 On Track
+**Status**: 🟢 On Track - Phase 0 Complete
 
 ---
 
 ## 📍 Current State
 
-### ✅ Completed Today
+### ✅ Phase 0 Complete - Discovery & Data Source Mapping
 
-1. **Project Initialization**
-   - Created directory structure (`api/`, `dagster/`, `frontend/`, `adapters/`, `models/`, `tests/`, `docs/`)
-   - Set up environment files (`.env.example`, `.env.local`, `.env.production`)
-   - Created comprehensive `.gitignore`
-   - Created `exploration/` directory for testing (gitignored)
+1. **P0.1: OpenParliament API Exploration** ✅
+   - Explored all endpoints (bills, MPs, votes, debates, committees)
+   - Mapped schemas and identified 10 entity types
+   - Confirmed 90% data coverage
+   - Documented gaps: subject tags, committee details, royal assent
 
-2. **Data Source Discovery**
-   - Explored OpenParliament API comprehensively
-   - Mapped all entity schemas (Bills, MPs, Votes, Debates, Committees)
-   - Documented relationships and key fields
-   - Analyzed data completeness and gaps
+2. **P0.2: Official Source Comparison** ✅
+   - Explored LEGISinfo (parl.ca/legisinfo)
+   - Explored Parliament.ca Committee pages
+   - Analyzed Hansard structure (covered by OpenParliament)
+   - Created source comparison matrix
+   - **Document**: `exploration/P0.2_SOURCE_COMPARISON.md`
 
-3. **Key Decisions Made**
-   - **Primary Data Source**: OpenParliament API (JSON, no auth, comprehensive)
-   - **Enrichment Strategy**: Selective LEGISinfo scraping for missing fields (tags, committee details)
-   - **Architecture**: Hybrid approach reduces scraping needs to targeted enrichment only
+3. **P0.3: Adapter Strategy Defined** ✅
+   - Designed `BaseAdapter` protocol with unified `AdapterResponse[T]`
+   - Defined rate limiting strategy (token bucket)
+   - Defined error handling and retry logic
+   - Planned merge strategy for enrichment
+   - **Document**: `exploration/P0.3_ADAPTER_STRATEGY.md`
 
 4. **Documentation Created**
    - `README.md` - Project overview and quickstart
    - `RUNNING.md` - Full task breakdown (8 phases, 80+ tasks)
-   - `TASKLIST.md` - Focused current tasks
-   - `exploration/FINDINGS.md` - Detailed API analysis
+   - `TASKLIST.md` - Focused current tasks (updated with P0.2/P0.3 completion)
+   - `exploration/FINDINGS.md` - OpenParliament API analysis
+   - `exploration/P0.2_SOURCE_COMPARISON.md` - Multi-source comparison
+   - `exploration/P0.3_ADAPTER_STRATEGY.md` - Adapter architecture
    - `exploration/README.md` - Exploration guide
    - `requirements.txt` - Initial dependencies
 
