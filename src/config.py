@@ -76,6 +76,36 @@ class DatabaseConfig(BaseSettings):
                 host_port = f"{host_port}:{self.port}"
             
             return f"{self.driver}://{auth}{host_port}/{self.database}"
+    
+    @property
+    def sync_connection_string(self) -> str:
+        """
+        Build synchronous database connection string for Alembic migrations.
+        
+        Returns:
+            SQLAlchemy sync connection string (without async drivers)
+        """
+        # Replace async drivers with sync equivalents
+        sync_driver = self.driver.replace("+aiosqlite", "").replace("+asyncpg", "+psycopg2")
+        
+        if sync_driver.startswith("sqlite"):
+            # SQLite: use local file path
+            db_path = Path(self.database)
+            return f"{sync_driver}:///{db_path.absolute()}"
+        else:
+            # PostgreSQL: use host/port/credentials
+            auth = ""
+            if self.username:
+                auth = self.username
+                if self.password:
+                    auth = f"{auth}:{self.password}"
+                auth = f"{auth}@"
+            
+            host_port = self.host or "localhost"
+            if self.port:
+                host_port = f"{host_port}:{self.port}"
+            
+            return f"{sync_driver}://{auth}{host_port}/{self.database}"
 
 
 class RedisConfig(BaseSettings):
