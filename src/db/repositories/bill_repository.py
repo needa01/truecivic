@@ -87,6 +87,37 @@ class BillRepository:
         model = result.scalar_one_or_none()
         return self._model_to_domain(model) if model else None
     
+    async def _get_model_by_natural_key(
+        self,
+        jurisdiction: str,
+        parliament: int,
+        session: int,
+        number: str
+    ) -> Optional[BillModel]:
+        """
+        Get BillModel by natural key (internal use for updates).
+        
+        Args:
+            jurisdiction: Jurisdiction code (e.g., "ca-federal")
+            parliament: Parliament number
+            session: Session number
+            number: Bill number
+        
+        Returns:
+            BillModel if found, None otherwise
+        """
+        result = await self.session.execute(
+            select(BillModel).where(
+                and_(
+                    BillModel.jurisdiction == jurisdiction,
+                    BillModel.parliament == parliament,
+                    BillModel.session == session,
+                    BillModel.number == number
+                )
+            )
+        )
+        return result.scalar_one_or_none()
+    
     async def get_by_parliament_session(
         self,
         parliament: int,
@@ -158,11 +189,15 @@ class BillRepository:
         bill_model.short_title_en = bill.short_title_en
         bill_model.short_title_fr = bill.short_title_fr
         bill_model.sponsor_politician_id = bill.sponsor_politician_id
+        bill_model.sponsor_politician_name = getattr(bill, 'sponsor_politician_name', None)
         bill_model.introduced_date = bill.introduced_date
         bill_model.law_status = bill.law_status
         
         # Update enrichment fields
         bill_model.legisinfo_id = bill.legisinfo_id
+        bill_model.legisinfo_status = getattr(bill, 'legisinfo_status', None)
+        bill_model.legisinfo_summary_en = getattr(bill, 'legisinfo_summary_en', None)
+        bill_model.legisinfo_summary_fr = getattr(bill, 'legisinfo_summary_fr', None)
         bill_model.subject_tags = bill.subject_tags
         bill_model.committee_studies = bill.committee_studies
         bill_model.royal_assent_date = bill.royal_assent_date
@@ -194,8 +229,8 @@ class BillRepository:
         Returns:
             Tuple of (BillModel, created) where created is True if new
         """
-        # Check if bill exists
-        existing = await self.get_by_natural_key(
+        # Check if bill exists (get BillModel for update)
+        existing = await self._get_model_by_natural_key(
             bill.jurisdiction,
             bill.parliament,
             bill.session,

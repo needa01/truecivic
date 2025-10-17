@@ -81,10 +81,10 @@ async def main():
                 first_bill = bills[0]
                 logger.info(f"\n📄 Sample Bill:")
                 logger.info(f"  - Number: {first_bill.number}")
-                logger.info(f"  - Title: {first_bill.short_title or first_bill.name}")
+                logger.info(f"  - Title: {first_bill.short_title_en or first_bill.title_en}")
                 logger.info(f"  - Introduced: {first_bill.introduced_date}")
-                logger.info(f"  - Sponsor: {first_bill.sponsor_politician_name or 'Unknown'}")
-                logger.info(f"  - Status: {first_bill.legisinfo_status or 'Unknown'}")
+                logger.info(f"  - Sponsor ID: {first_bill.sponsor_politician_id or 'Unknown'}")
+                logger.info(f"  - LEGISinfo ID: {first_bill.legisinfo_id or 'Unknown'}")
                 logger.info(f"  - Tags: {len(first_bill.subject_tags or [])} tags")
                 logger.info(f"  - Committees: {len(first_bill.committee_studies or [])} committees")
         
