@@ -52,6 +52,11 @@ class BillModel(Base):
         index=True
     )
     
+    sponsor_politician_name: Mapped[Optional[str]] = mapped_column(
+        String(200),
+        nullable=True
+    )
+    
     introduced_date: Mapped[Optional[datetime]] = mapped_column(
         DateTime,
         nullable=True,
@@ -66,6 +71,21 @@ class BillModel(Base):
         nullable=True,
         unique=True,
         index=True
+    )
+    
+    legisinfo_status: Mapped[Optional[str]] = mapped_column(
+        String(200),
+        nullable=True
+    )
+    
+    legisinfo_summary_en: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True
+    )
+    
+    legisinfo_summary_fr: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True
     )
     
     subject_tags: Mapped[Optional[List[str]]] = mapped_column(
