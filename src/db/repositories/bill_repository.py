@@ -61,7 +61,7 @@ class BillRepository:
         parliament: int,
         session: int,
         number: str
-    ) -> Optional[BillModel]:
+    ) -> Optional[Bill]:
         """
         Get bill by natural key (jurisdiction, parliament, session, number).
         
@@ -72,7 +72,7 @@ class BillRepository:
             number: Bill number
         
         Returns:
-            BillModel if found, None otherwise
+            Bill domain object if found, None otherwise
         """
         result = await self.session.execute(
             select(BillModel).where(
@@ -84,7 +84,8 @@ class BillRepository:
                 )
             )
         )
-        return result.scalar_one_or_none()
+        model = result.scalar_one_or_none()
+        return self._model_to_domain(model) if model else None
     
     async def get_by_parliament_session(
         self,
@@ -116,7 +117,10 @@ class BillRepository:
         query = query.limit(limit).offset(offset)
         
         result = await self.session.execute(query)
-        return list(result.scalars().all())
+        models = list(result.scalars().all())
+        
+        # Convert models to domain objects
+        return [self._model_to_domain(model) for model in models]
     
     async def create(self, bill: Bill) -> BillModel:
         """
@@ -358,3 +362,33 @@ class BillRepository:
             'last_fetched_at': bill.last_fetched_at or datetime.utcnow(),
             'last_enriched_at': bill.last_enriched_at,
         }
+    
+    def _model_to_domain(self, model: BillModel) -> Bill:
+        """Convert BillModel ORM model to Bill domain model"""
+        return Bill(
+            jurisdiction=model.jurisdiction,
+            parliament=model.parliament,
+            session=model.session,
+            number=model.number,
+            title_en=model.title_en,
+            title_fr=model.title_fr,
+            short_title_en=model.short_title_en,
+            short_title_fr=model.short_title_fr,
+            sponsor_politician_id=model.sponsor_politician_id,
+            sponsor_politician_name=model.sponsor_politician_name,
+            introduced_date=model.introduced_date,
+            law_status=model.law_status,
+            legisinfo_id=model.legisinfo_id,
+            legisinfo_status=model.legisinfo_status,
+            legisinfo_summary_en=model.legisinfo_summary_en,
+            legisinfo_summary_fr=model.legisinfo_summary_fr,
+            subject_tags=model.subject_tags,
+            committee_studies=model.committee_studies,
+            royal_assent_date=model.royal_assent_date,
+            royal_assent_chapter=model.royal_assent_chapter,
+            related_bill_numbers=model.related_bill_numbers,
+            source_openparliament=model.source_openparliament,
+            source_legisinfo=model.source_legisinfo,
+            last_fetched_at=model.last_fetched_at,
+            last_enriched_at=model.last_enriched_at,
+        )
