@@ -143,6 +143,12 @@ test-outputs/
 scratch/
 sandbox/
 
+# Working Documents (local only)
+PHASE0_COMPLETE.md
+RUNNING.md
+STATUS.md
+TASKLIST.md
+
 # Profiling
 *.prof
 *.lprof
