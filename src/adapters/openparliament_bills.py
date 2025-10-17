@@ -157,7 +157,17 @@ class OpenParliamentBillsAdapter(BaseAdapter[Bill]):
                 
                 # Check for next page
                 pagination = data.get("pagination", {})
-                url = pagination.get("next_url")
+                next_url = pagination.get("next_url")
+                
+                if next_url:
+                    # Handle relative URLs
+                    if next_url.startswith("/"):
+                        url = f"{self.BASE_URL}{next_url}"
+                    else:
+                        url = next_url
+                else:
+                    url = None
+                
                 params = None  # Next URL has params embedded
                 
                 self.logger.debug(
@@ -209,14 +219,13 @@ class OpenParliamentBillsAdapter(BaseAdapter[Bill]):
         Raises:
             ValueError: If required fields are missing
         """
-        # Extract parliament/session from sessions list
-        # Format: ["/sessions/44-1/", "/sessions/44-2/"]
-        sessions = raw_data.get("sessions", [])
-        if not sessions:
-            raise ValueError("Bill missing sessions field")
+        # Extract parliament/session from session field
+        # Format: "44-1" (parliament-session)
+        session_str = raw_data.get("session")
+        if not session_str:
+            raise ValueError("Bill missing session field")
         
-        # Parse first session (bills can span multiple sessions)
-        session_str = sessions[0].replace("/sessions/", "").rstrip("/")
+        # Parse session string
         parts = session_str.split("-")
         
         if len(parts) != 2:
