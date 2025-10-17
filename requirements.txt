@@ -7,12 +7,19 @@ beautifulsoup4>=4.12.0
 # Data processing
 pandas>=2.1.0
 pydantic>=2.4.0
+pydantic-settings>=2.0.0
 
 # Database (will add when ready)
 # psycopg[binary]>=3.1.0
 # asyncpg>=0.29.0
 # sqlalchemy>=2.0.0
 # alembic>=1.12.0
+
+# Database - Active (local SQLite, production PostgreSQL)
+sqlalchemy>=2.0.0
+alembic>=1.12.0
+aiosqlite>=0.19.0  # For local SQLite async
+asyncpg>=0.29.0  # For production PostgreSQL async
 
 # Redis (will add when ready)
 # redis>=5.0.0
