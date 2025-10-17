@@ -6,7 +6,9 @@ the BaseAdapter interface.
 """
 
 from .base_adapter import BaseAdapter
+from .openparliament_bills import OpenParliamentBillsAdapter
 
 __all__ = [
     "BaseAdapter",
+    "OpenParliamentBillsAdapter",
 ]
