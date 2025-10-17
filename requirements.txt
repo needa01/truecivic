@@ -29,6 +29,10 @@ prefect-sqlalchemy>=0.4.0
 # Redis (active - for Prefect result backend)
 redis>=5.0.0
 
+# Storage & Streaming
+minio>=7.2.0  # S3-compatible object storage
+aiokafka>=0.10.0  # Kafka async client
+
 # API (will add when ready)
 # fastapi>=0.104.0
 # uvicorn[standard]>=0.24.0
