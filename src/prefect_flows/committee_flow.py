@@ -146,9 +146,6 @@ async def store_meetings_task(
     """
     Store committee meetings in database.
     
-    Note: This requires a CommitteeMeetingRepository which we'll create separately.
-    For now, this is a placeholder.
-    
     Args:
         meetings_data: List of meeting dictionaries
         
@@ -156,15 +153,26 @@ async def store_meetings_task(
         Dict with count of stored meetings
     """
     logger_task = get_run_logger()
-    logger_task.info(f"Storing {len(meetings_data)} meetings (placeholder)")
     
-    # TODO: Implement CommitteeMeetingRepository
-    # async with async_session_factory() as session:
-    #     meeting_repo = CommitteeMeetingRepository(session)
-    #     stored_meetings = await meeting_repo.upsert_many(meetings_data)
-    #     await session.commit()
+    if not meetings_data:
+        logger_task.info("No meetings to store")
+        return {"stored": 0}
     
-    return {"stored": 0, "note": "CommitteeMeetingRepository not yet implemented"}
+    from src.db.repositories.committee_meeting_repository import CommitteeMeetingRepository
+    from src.db.session import get_db
+    
+    try:
+        async with get_db() as session:
+            meeting_repo = CommitteeMeetingRepository(session)
+            stored_meetings = await meeting_repo.upsert_many(meetings_data)
+            await session.commit()
+            
+            logger_task.info(f"✅ Stored {len(stored_meetings)} committee meetings")
+            return {"stored": len(stored_meetings)}
+            
+    except Exception as e:
+        logger_task.error(f"Error storing meetings: {str(e)}", exc_info=True)
+        raise
 
 
 @flow(

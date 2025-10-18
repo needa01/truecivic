@@ -10,7 +10,7 @@ Responsibility: Centralized configuration and environment management
 import os
 from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -186,6 +186,12 @@ class AppConfig(BaseSettings):
     api_host: str = Field(default="0.0.0.0")
     api_port: int = Field(default=8000)
     api_workers: int = Field(default=1)
+    
+    # CORS settings
+    cors_origins: List[str] = Field(
+        default=["http://localhost:3000", "http://localhost:8000"],
+        description="Allowed CORS origins (comma-separated in env)"
+    )
     
     # Data refresh intervals (seconds)
     bill_refresh_interval: int = Field(default=3600)  # 1 hour

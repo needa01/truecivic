@@ -8,7 +8,7 @@ Responsibility: Define database schema and ORM mappings
 """
 
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict
 import sqlalchemy as sa
 from sqlalchemy import (
     String, Integer, DateTime, Boolean, Text, JSON,
@@ -622,4 +622,36 @@ class PersonalizedFeedTokenModel(Base):
     
     def __repr__(self) -> str:
         return f"<PersonalizedFeedTokenModel(id={self.id}, token={self.token}, type={self.feed_type})>"
+
+
+class CommitteeMeetingModel(Base):
+    """Database model for committee meetings."""
+    
+    __tablename__ = "committee_meetings"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    committee_id: Mapped[int] = mapped_column(Integer, ForeignKey('committees.id', ondelete='CASCADE'), nullable=False, index=True)
+    meeting_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    parliament: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    session: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    meeting_date: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    time_of_day: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    title_en: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    title_fr: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    meeting_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    room: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    witnesses: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
+    documents: Mapped[Optional[Dict]] = mapped_column(JSON, nullable=True)
+    source_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    __table_args__ = (
+        UniqueConstraint('committee_id', 'meeting_number', 'parliament', 'session', name='uq_committee_meeting_natural_key'),
+        Index('idx_committee_meetings_committee_date', 'committee_id', 'meeting_date'),
+    )
+    
+    def __repr__(self) -> str:
+        return f"<CommitteeMeetingModel(id={self.id}, committee_id={self.committee_id}, number={self.meeting_number})>"
 
