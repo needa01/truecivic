@@ -56,7 +56,7 @@ class FetchLogRepository:
         Returns:
             Created FetchLogModel instance
         """
-        async with self.db.get_session() as session:
+        async with self.db.session() as session:
             log = FetchLogModel(
                 source=source,
                 status=status,
@@ -90,7 +90,7 @@ class FetchLogRepository:
         Returns:
             List of FetchLogModel instances
         """
-        async with self.db.get_session() as session:
+        async with self.db.session() as session:
             query = select(FetchLogModel).where(
                 FetchLogModel.created_at >= cutoff_time
             )
@@ -118,7 +118,7 @@ class FetchLogRepository:
         Returns:
             List of FetchLogModel instances
         """
-        async with self.db.get_session() as session:
+        async with self.db.session() as session:
             query = select(FetchLogModel)
             
             if source:
