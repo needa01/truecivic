@@ -73,26 +73,30 @@ python -m alembic revision -m "description of changes"
 
 Alembic automatically uses your project's database configuration from `src/config.py`:
 
-- **Local (SQLite)**: Uses `parliament_explorer.db` in project root
+- **Local (PostgreSQL + pgvector)**: Controlled via `.env.local`
 - **Production (PostgreSQL)**: Uses environment variables:
-  - `DB_DRIVER=postgresql+psycopg2`
+  - `DB_DRIVER=postgresql+psycopg`
   - `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD`
 
 ## Important Notes
 
 ### Async vs Sync Drivers
-- **Application code** uses async drivers (`sqlite+aiosqlite`, `postgresql+asyncpg`)
-- **Migrations** use sync drivers (`sqlite`, `postgresql+psycopg2`)
+
+- **Application code** uses async drivers (`postgresql+asyncpg`)
+- **Migrations** use the sync driver (`postgresql+psycopg`)
 - The `DatabaseConfig.sync_connection_string` property handles this conversion
 
 ### Auto-generation Limitations
+
 Alembic's auto-generate detects:
+
 - ✅ New tables and columns
 - ✅ Removed tables and columns
 - ✅ Changed column types
 - ✅ Added/removed indexes
 
 But may miss:
+
 - ⚠️ Changes to column constraints
 - ⚠️ Changes to server defaults
 - ⚠️ Renamed columns (appears as drop + add)
@@ -100,6 +104,7 @@ But may miss:
 Always review generated migrations!
 
 ### Production Best Practices
+
 1. **Never** edit an already-applied migration
 2. **Always** test migrations in staging before production
 3. **Backup** database before running migrations in production
@@ -109,6 +114,7 @@ Always review generated migrations!
 ## Initial Migration
 
 The initial migration (`7bd692ce137c`) creates:
+
 - **bills** table with 26 columns, 11 indexes, and natural key constraint
 - **politicians** table with 14 columns, 6 indexes
 - **fetch_logs** table with 10 columns, 5 indexes
@@ -118,15 +124,19 @@ Run `python -m alembic upgrade head` to initialize a fresh database.
 ## Troubleshooting
 
 ### "FAILED: Can't locate revision identified by '...'"
+
 - Your database's migration version doesn't match available migrations
 - Solution: Use `python -m alembic stamp head` to force set current version (⚠️ dangerous)
 
 ### "Target database is not up to date"
+
 - Run `python -m alembic upgrade head` to apply pending migrations
 
 ### Auto-generate Creates No Changes
+
 - Database schema already matches models
 - Or Alembic can't connect to database (check connection string)
 
 ### SSL/TLS Certificate Error on Windows
+
 - Install with: `pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org alembic`
