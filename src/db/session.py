@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker
 )
-from sqlalchemy.pool import NullPool, QueuePool
 import logging
 
 from ..config import settings
@@ -28,7 +27,7 @@ class Database:
     Database connection manager.
     
     Handles engine creation, connection pooling, and session management
-    for both local (SQLite) and production (PostgreSQL) environments.
+    for PostgreSQL/pgvector environments.
     
     Example:
         # Initialize
@@ -53,8 +52,7 @@ class Database:
         """
         Initialize database engine and session factory.
         
-        Creates async engine with appropriate pool settings based on
-        the configured database driver (SQLite vs PostgreSQL).
+    Creates an async engine configured for PostgreSQL/pgvector.
         """
         if self._initialized:
             logger.warning("Database already initialized")
@@ -64,26 +62,17 @@ class Database:
         
         logger.info(f"Initializing database: {connection_string.split('://')[0]}")
         
-        # Determine pool class based on driver
-        if "sqlite" in settings.db.driver:
-            # SQLite: No connection pooling (single-file database)
-            pool_class = NullPool
-            pool_kwargs = {}
-            logger.info("Using SQLite with NullPool")
-        else:
-            # PostgreSQL: Use default async pooling (automatically uses AsyncAdaptedQueuePool)
-            pool_class = None  # Let SQLAlchemy choose the appropriate async pool
-            pool_kwargs = {
-                "pool_size": settings.db.pool_size,
-                "max_overflow": settings.db.max_overflow,
-                "pool_timeout": settings.db.pool_timeout,
-                "pool_recycle": settings.db.pool_recycle,
-            }
-            logger.info(
-                f"Using PostgreSQL with default async pooling "
-                f"(size={settings.db.pool_size}, "
-                f"max_overflow={settings.db.max_overflow})"
-            )
+        # Configure PostgreSQL connection pool
+        pool_kwargs = {
+            "pool_size": settings.db.pool_size,
+            "max_overflow": settings.db.max_overflow,
+            "pool_timeout": settings.db.pool_timeout,
+            "pool_recycle": settings.db.pool_recycle,
+        }
+        logger.info(
+            "Using PostgreSQL with async pooling "
+            f"(size={settings.db.pool_size}, max_overflow={settings.db.max_overflow})"
+        )
         
         # Create async engine
         engine_kwargs = {
@@ -91,8 +80,6 @@ class Database:
             "echo_pool": settings.db.echo_pool,
             **pool_kwargs
         }
-        if pool_class is not None:
-            engine_kwargs["poolclass"] = pool_class
         
         self.engine = create_async_engine(connection_string, **engine_kwargs)
         
@@ -200,26 +187,27 @@ class Database:
         logger.info("Database closed")
 
 
+# MARK: - Global helpers
+
 # Global database instance
 db = Database()
 
 
-async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    """
-    FastAPI dependency for database sessions.
-    
-    Yields an async database session for use in route handlers.
-    Automatically commits on success, rolls back on error.
-    
-    Usage:
-        @app.get("/endpoint")
-        async def endpoint(db: AsyncSession = Depends(get_db)):
-            ...
-    """
+@asynccontextmanager
+async def async_session_factory() -> AsyncGenerator[AsyncSession, None]:
+    """Provide an initialized async session context for ad-hoc usage."""
     if not db._initialized:
         await db.initialize()
-    
-    async with db.get_session() as session:
+    async with db.session() as session:
+        yield session
+
+
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    """FastAPI dependency entry point for retrieving an async session."""
+    if not db._initialized:
+        await db.initialize()
+
+    async with db.session() as session:
         try:
             yield session
             await session.commit()
