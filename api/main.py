@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 import logging
 
 from src.config import settings
+from api.middleware import RateLimiterMiddleware
 
 # Configure logging
 logging.basicConfig(
@@ -38,6 +39,32 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Configure rate limiting
+rate_limiter = RateLimiterMiddleware(
+    app,
+    redis_url=settings.redis_url if hasattr(settings, 'redis_url') else None
+)
+app.add_middleware(RateLimiterMiddleware, redis_url=settings.redis_url if hasattr(settings, 'redis_url') else None)
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services on startup"""
+    logger.info("Starting Parliament Explorer API...")
+    # Initialize rate limiter
+    if hasattr(app, 'user_middleware'):
+        for middleware in app.user_middleware:
+            if isinstance(middleware.cls, type) and issubclass(middleware.cls, RateLimiterMiddleware):
+                # Find the rate limiter instance
+                pass
+    logger.info("Rate limiter initialized")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown"""
+    logger.info("Shutting down Parliament Explorer API...")
 
 
 @app.get("/")

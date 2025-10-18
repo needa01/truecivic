@@ -234,6 +234,13 @@ class Settings(BaseSettings):
         extra="ignore"
     )
     
+    @property
+    def redis_url(self) -> Optional[str]:
+        """Get Redis connection URL for rate limiting"""
+        if self.redis.enabled:
+            return self.redis.connection_string
+        return None
+    
     @classmethod
     def for_local(cls) -> "Settings":
         """Create settings for local development (SQLite)"""
