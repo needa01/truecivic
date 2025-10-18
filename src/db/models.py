@@ -655,3 +655,34 @@ class CommitteeMeetingModel(Base):
     def __repr__(self) -> str:
         return f"<CommitteeMeetingModel(id={self.id}, committee_id={self.committee_id}, number={self.meeting_number})>"
 
+
+class APIKeyModel(Base):
+    """Database model for API key authentication."""
+    
+    __tablename__ = "api_keys"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    key_hash: Mapped[str] = mapped_column(String(256), nullable=False, unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    
+    # Rate limiting
+    rate_limit_requests: Mapped[int] = mapped_column(Integer, nullable=False, default=1000)
+    rate_limit_window_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=3600)
+    
+    # Metadata
+    created_by: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
+    
+    # Audit
+    requests_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    
+    __table_args__ = (
+        Index('idx_api_keys_active_expires', 'is_active', 'expires_at'),
+    )
+    
+    def __repr__(self) -> str:
+        return f"<APIKeyModel(id={self.id}, name={self.name}, active={self.is_active})>"
+

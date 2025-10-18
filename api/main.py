@@ -13,6 +13,7 @@ import logging
 
 from src.config import settings
 from api.middleware import RateLimiterMiddleware
+from api.middleware.api_key_auth import APIKeyMiddleware
 from src.db.session import get_db
 
 # GraphQL imports (only if strawberry is installed)
@@ -48,7 +49,13 @@ app.add_middleware(
     allow_origins=settings.app.cors_origins,  # From config: dev=localhost, prod=specific domains
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*", "X-API-Key"],  # Allow X-API-Key header
+)
+
+# Configure API key authentication middleware
+app.add_middleware(
+    APIKeyMiddleware,
+    protected_paths=["/api/v1/"]
 )
 
 # Configure rate limiting
@@ -129,7 +136,13 @@ async def global_exception_handler(request, exc):
 
 
 # Import and include routers
-from api.v1.endpoints import bills, politicians, votes, debates, committees, feeds, search, graph, preferences
+from api.v1.endpoints import bills, politicians, votes, debates, committees, feeds, search, graph, preferences, auth
+
+app.include_router(
+    auth.router,
+    prefix="/api/v1",
+    tags=["authentication"]
+)
 
 app.include_router(
     bills.router,
