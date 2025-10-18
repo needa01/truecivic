@@ -109,16 +109,19 @@ def get_bills_by_sponsor_loader(db: AsyncSession) -> DataLoader:
     """Create DataLoader for bills by sponsor_id"""
     
     async def load_bills_by_sponsor(sponsor_ids: List[int]) -> List[List[BillModel]]:
-        query = select(BillModel).where(BillModel.sponsor_id.in_(sponsor_ids))
+        query = select(BillModel).where(BillModel.sponsor_politician_id.in_(sponsor_ids))
         result = await db.execute(query)
         bills = result.scalars().all()
         
         # Group by sponsor_id
         bills_by_sponsor: Dict[int, List[BillModel]] = {}
         for bill in bills:
-            if bill.sponsor_id not in bills_by_sponsor:
-                bills_by_sponsor[bill.sponsor_id] = []
-            bills_by_sponsor[bill.sponsor_id].append(bill)
+            sponsor_id = bill.sponsor_politician_id
+            if sponsor_id is None:
+                continue
+            if sponsor_id not in bills_by_sponsor:
+                bills_by_sponsor[sponsor_id] = []
+            bills_by_sponsor[sponsor_id].append(bill)
         
         return [bills_by_sponsor.get(sponsor_id, []) for sponsor_id in sponsor_ids]
     
@@ -213,15 +216,15 @@ async def get_politicians(
     limit: int = 20,
     offset: int = 0,
     party: Optional[str] = None,
-    province: Optional[str] = None
+    riding: Optional[str] = None
 ) -> List[PoliticianModel]:
     """Get politicians with filters"""
     query = select(PoliticianModel)
     
     if party:
-        query = query.where(PoliticianModel.party == party)
-    if province:
-        query = query.where(PoliticianModel.province == province)
+        query = query.where(PoliticianModel.current_party == party)
+    if riding:
+        query = query.where(PoliticianModel.current_riding == riding)
     
     query = query.order_by(PoliticianModel.name)
     query = query.limit(limit).offset(offset)
@@ -245,7 +248,7 @@ async def get_votes(
     if session is not None:
         query = query.where(VoteModel.session == session)
     
-    query = query.order_by(VoteModel.date.desc())
+    query = query.order_by(VoteModel.vote_date.desc())
     query = query.limit(limit).offset(offset)
     
     result = await db.execute(query)
