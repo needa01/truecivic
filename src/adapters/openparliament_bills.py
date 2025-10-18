@@ -7,7 +7,7 @@ Supports filtering by parliament/session and sorting to get latest bills first.
 Responsibility: Fetch and normalize bills from OpenParliament JSON API
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, Dict, Any
 import httpx
 
@@ -58,6 +58,8 @@ class OpenParliamentBillsAdapter(BaseAdapter[Bill]):
         parliament: Optional[int] = None,
         session: Optional[int] = None,
         limit: int = 100,
+        introduced_after: Optional[datetime] = None,
+        introduced_before: Optional[datetime] = None,
         **kwargs: Any
     ) -> AdapterResponse[Bill]:
         """
@@ -104,6 +106,11 @@ class OpenParliamentBillsAdapter(BaseAdapter[Bill]):
                 # Note: OpenParliament uses session filtering differently
                 # We'll fetch and filter in normalize() if needed
                 self.logger.debug(f"Filtering for parliament {parliament}, session {session}")
+
+            if introduced_after:
+                params["introduced__gte"] = introduced_after.date().isoformat()
+            if introduced_before:
+                params["introduced__lte"] = introduced_before.date().isoformat()
             
             records_fetched = 0
             
@@ -132,6 +139,12 @@ class OpenParliamentBillsAdapter(BaseAdapter[Bill]):
                         if parliament and bill.parliament != parliament:
                             continue
                         if session and bill.session != session:
+                            continue
+                        if introduced_after and bill.introduced_date and bill.introduced_date < introduced_after:
+                            continue
+                        if introduced_before and bill.introduced_date and bill.introduced_date > introduced_before:
+                            continue
+                        if introduced_after and bill.introduced_date is None:
                             continue
                         
                         bills.append(bill)
