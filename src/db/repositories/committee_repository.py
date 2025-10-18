@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert
 
 from src.db.models import CommitteeModel
+from src.utils.committee_registry import build_committee_identifier, resolve_source_slug
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,31 @@ class CommitteeRepository:
             session: Async database session
         """
         self.session = session
+
+    def _normalize_committee_payload(self, committee_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Normalize committee identifiers before persistence.
+
+        Ensures we always store the canonical acronym, the jurisdiction-prefixed
+        slug, and a lowercase OpenParliament slug when available.
+        """
+        identifier_seed = (
+            committee_data.get("committee_slug")
+            or committee_data.get("committee_code")
+            or committee_data.get("source_slug")
+        )
+        if not identifier_seed:
+            raise ValueError("Committee payload requires a code or slug")
+
+        identifier = build_committee_identifier(identifier_seed)
+        committee_data["committee_code"] = identifier.code
+        committee_data["committee_slug"] = identifier.internal_slug
+
+        source_slug = committee_data.get("source_slug") or identifier.source_slug
+        normalized_source_slug = resolve_source_slug(source_slug) if source_slug else None
+        committee_data["source_slug"] = normalized_source_slug
+
+        return committee_data
     
     async def get_by_id(self, committee_id: int) -> Optional[CommitteeModel]:
         """
@@ -58,13 +84,28 @@ class CommitteeRepository:
         Returns:
             CommitteeModel or None if not found
         """
+        normalized_code = build_committee_identifier(committee_code).code
+
         result = await self.session.execute(
             select(CommitteeModel).where(
                 and_(
                     CommitteeModel.jurisdiction == jurisdiction,
-                    CommitteeModel.committee_code == committee_code
+                    CommitteeModel.committee_code == normalized_code
                 )
             )
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_slug(
+        self,
+        committee_slug: str,
+    ) -> Optional[CommitteeModel]:
+        """
+        Fetch a committee by its jurisdiction-prefixed slug.
+        """
+        normalized_slug = build_committee_identifier(committee_slug).internal_slug
+        result = await self.session.execute(
+            select(CommitteeModel).where(CommitteeModel.committee_slug == normalized_slug)
         )
         return result.scalar_one_or_none()
     
@@ -107,15 +148,16 @@ class CommitteeRepository:
         Returns:
             CommitteeModel (newly created or updated)
         """
-        jurisdiction = committee_data.get("jurisdiction", "ca")
-        committee_code = committee_data["committee_code"]
+        normalized_payload = self._normalize_committee_payload(dict(committee_data))
+        jurisdiction = normalized_payload.get("jurisdiction", "ca")
+        committee_code = normalized_payload["committee_code"]
         
         # Check if exists
         existing = await self.get_by_code(jurisdiction, committee_code)
         
         if existing:
             # Update
-            for key, value in committee_data.items():
+            for key, value in normalized_payload.items():
                 if hasattr(existing, key) and key not in ["id", "created_at"]:
                     setattr(existing, key, value)
             existing.updated_at = datetime.utcnow()
@@ -124,7 +166,7 @@ class CommitteeRepository:
             return existing
         else:
             # Insert
-            committee = CommitteeModel(**committee_data)
+            committee = CommitteeModel(**normalized_payload)
             self.session.add(committee)
             await self.session.flush()
             logger.debug(f"Created committee: {committee_code}")
@@ -147,16 +189,19 @@ class CommitteeRepository:
             return []
         
         # Prepare data with timestamps
+        normalized_committees: List[Dict[str, Any]] = []
         for committee in committees_data:
-            if "jurisdiction" not in committee:
-                committee["jurisdiction"] = "ca"
-            if "created_at" not in committee:
-                committee["created_at"] = datetime.utcnow()
-            if "updated_at" not in committee:
-                committee["updated_at"] = datetime.utcnow()
+            normalized = self._normalize_committee_payload(dict(committee))
+            if "jurisdiction" not in normalized:
+                normalized["jurisdiction"] = "ca"
+            if "created_at" not in normalized:
+                normalized["created_at"] = datetime.utcnow()
+            if "updated_at" not in normalized:
+                normalized["updated_at"] = datetime.utcnow()
+            normalized_committees.append(normalized)
         
         # PostgreSQL upsert
-        stmt = insert(CommitteeModel).values(committees_data)
+        stmt = insert(CommitteeModel).values(normalized_committees)
         update_dict = {
             col.name: stmt.excluded[col.name]
             for col in CommitteeModel.__table__.columns
