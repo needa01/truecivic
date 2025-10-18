@@ -7,19 +7,38 @@ natural key lookups and bulk operations.
 Responsibility: Abstract database operations for bills
 """
 
+from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Optional, Tuple
+from enum import Enum
+from typing import Dict, List, Optional, Tuple
 from sqlalchemy import select, and_, or_, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 import logging
 
 from ..models import BillModel
 from ...models.bill import Bill
 from ...config import settings
+from ...utils.hash_utils import compute_bill_hash
 
 logger = logging.getLogger(__name__)
+
+
+class BillPersistenceStatus(Enum):
+    """Outcome classification for bill persistence operations."""
+
+    CREATED = "created"
+    UPDATED = "updated"
+    UNCHANGED = "unchanged"
+
+
+@dataclass(slots=True)
+class BillPersistenceOutcome:
+    """Represents the result of persisting a single bill."""
+
+    model: BillModel
+    status: BillPersistenceStatus
+    content_hash: str
 
 
 class BillRepository:
@@ -35,8 +54,8 @@ class BillRepository:
         # Find by natural key
         bill_model = await repo.get_by_natural_key("ca-federal", 44, 1, "C-1")
         
-        # Bulk upsert
-        bill_models = await repo.upsert_many(bills)
+    # Bulk upsert
+    outcomes = await repo.upsert_many(bills)
     """
     
     def __init__(self, session: AsyncSession):
@@ -153,7 +172,12 @@ class BillRepository:
         # Convert models to domain objects
         return [self._model_to_domain(model) for model in models]
     
-    async def create(self, bill: Bill) -> BillModel:
+    async def create(
+        self,
+        bill: Bill,
+        *,
+        content_hash: Optional[str] = None
+    ) -> BillModel:
         """
         Create a new bill in database.
         
@@ -163,7 +187,7 @@ class BillRepository:
         Returns:
             Created BillModel
         """
-        bill_model = self._domain_to_model(bill)
+        bill_model = self._domain_to_model(bill, content_hash=content_hash)
         
         self.session.add(bill_model)
         await self.session.flush()  # Get ID without committing
@@ -172,7 +196,13 @@ class BillRepository:
         
         return bill_model
     
-    async def update(self, bill_model: BillModel, bill: Bill) -> BillModel:
+    async def update(
+        self,
+        bill_model: BillModel,
+        bill: Bill,
+        *,
+        content_hash: Optional[str] = None
+    ) -> BillModel:
         """
         Update existing bill with new data.
         
@@ -207,8 +237,9 @@ class BillRepository:
         # Update source tracking
         bill_model.source_openparliament = bill.source_openparliament
         bill_model.source_legisinfo = bill.source_legisinfo
-        bill_model.last_fetched_at = bill.last_fetched_at
+        bill_model.last_fetched_at = bill.last_fetched_at or datetime.utcnow()
         bill_model.last_enriched_at = bill.last_enriched_at
+        bill_model.content_hash = content_hash or self._compute_content_hash(bill)
         
         # Update timestamp
         bill_model.updated_at = datetime.utcnow()
@@ -219,34 +250,45 @@ class BillRepository:
         
         return bill_model
     
-    async def upsert(self, bill: Bill) -> Tuple[BillModel, bool]:
-        """
-        Insert or update bill (upsert).
-        
-        Args:
-            bill: Bill domain model
-        
-        Returns:
-            Tuple of (BillModel, created) where created is True if new
-        """
-        # Check if bill exists (get BillModel for update)
+    async def upsert(self, bill: Bill) -> BillPersistenceOutcome:
+        """Insert or update bill (upsert)."""
+        content_hash = self._compute_content_hash(bill)
         existing = await self._get_model_by_natural_key(
             bill.jurisdiction,
             bill.parliament,
             bill.session,
             bill.number
         )
-        
+
         if existing:
-            # Update existing
-            updated = await self.update(existing, bill)
-            return updated, False
-        else:
-            # Create new
-            created = await self.create(bill)
-            return created, True
+            if existing.content_hash == content_hash:
+                existing.last_fetched_at = bill.last_fetched_at or datetime.utcnow()
+                await self.session.flush()
+                logger.debug(
+                    "Skipped update for bill %s (unchanged content)",
+                    bill.natural_key(),
+                )
+                return BillPersistenceOutcome(
+                    model=existing,
+                    status=BillPersistenceStatus.UNCHANGED,
+                    content_hash=content_hash,
+                )
+
+            updated = await self.update(existing, bill, content_hash=content_hash)
+            return BillPersistenceOutcome(
+                model=updated,
+                status=BillPersistenceStatus.UPDATED,
+                content_hash=content_hash,
+            )
+
+        created = await self.create(bill, content_hash=content_hash)
+        return BillPersistenceOutcome(
+            model=created,
+            status=BillPersistenceStatus.CREATED,
+            content_hash=content_hash,
+        )
     
-    async def upsert_many(self, bills: List[Bill]) -> List[BillModel]:
+    async def upsert_many(self, bills: List[Bill]) -> List[BillPersistenceOutcome]:
         """
         Bulk upsert bills.
         
@@ -257,7 +299,7 @@ class BillRepository:
             bills: List of Bill domain models
         
         Returns:
-            List of BillModel instances
+            List of BillPersistenceOutcome entries
         """
         if not bills:
             return []
@@ -270,87 +312,160 @@ class BillRepository:
         else:
             return await self._upsert_many_sqlite(bills)
     
-    async def _upsert_many_sqlite(self, bills: List[Bill]) -> List[BillModel]:
+    async def _upsert_many_sqlite(self, bills: List[Bill]) -> List[BillPersistenceOutcome]:
         """Bulk upsert for SQLite (individual operations)"""
-        models = []
+        outcomes: List[BillPersistenceOutcome] = []
         
         for bill in bills:
-            model, _ = await self.upsert(bill)
-            models.append(model)
+            outcome = await self.upsert(bill)
+            outcomes.append(outcome)
         
-        logger.info(f"Upserted {len(models)} bills (SQLite)")
-        
-        return models
-    
-    async def _upsert_many_postgresql(self, bills: List[Bill]) -> List[BillModel]:
-        """
-        Bulk upsert for PostgreSQL (native UPSERT).
-        
-        Uses PostgreSQL's ON CONFLICT DO UPDATE for efficient bulk operations.
-        """
-        # Convert bills to dict format
-        bill_dicts = [self._domain_to_dict(bill) for bill in bills]
-        
-        # Build upsert statement
-        stmt = pg_insert(BillModel).values(bill_dicts)
-        
-        # On conflict, update all fields except natural key
-        stmt = stmt.on_conflict_do_update(
-            constraint='uq_bill_natural_key',
-            set_={
-                'title_en': stmt.excluded.title_en,
-                'title_fr': stmt.excluded.title_fr,
-                'short_title_en': stmt.excluded.short_title_en,
-                'short_title_fr': stmt.excluded.short_title_fr,
-                'sponsor_politician_id': stmt.excluded.sponsor_politician_id,
-                'sponsor_politician_name': stmt.excluded.sponsor_politician_name,
-                'introduced_date': stmt.excluded.introduced_date,
-                'law_status': stmt.excluded.law_status,
-                'legisinfo_id': stmt.excluded.legisinfo_id,
-                'legisinfo_status': stmt.excluded.legisinfo_status,
-                'legisinfo_summary_en': stmt.excluded.legisinfo_summary_en,
-                'legisinfo_summary_fr': stmt.excluded.legisinfo_summary_fr,
-                'subject_tags': stmt.excluded.subject_tags,
-                'committee_studies': stmt.excluded.committee_studies,
-                'royal_assent_date': stmt.excluded.royal_assent_date,
-                'royal_assent_chapter': stmt.excluded.royal_assent_chapter,
-                'related_bill_numbers': stmt.excluded.related_bill_numbers,
-                'source_openparliament': stmt.excluded.source_openparliament,
-                'source_legisinfo': stmt.excluded.source_legisinfo,
-                'last_fetched_at': stmt.excluded.last_fetched_at,
-                'last_enriched_at': stmt.excluded.last_enriched_at,
-                'updated_at': datetime.utcnow(),
-            }
+        logger.info(
+            "Processed %d bills (SQLite) [created=%d, updated=%d, unchanged=%d]",
+            len(outcomes),
+            sum(1 for o in outcomes if o.status == BillPersistenceStatus.CREATED),
+            sum(1 for o in outcomes if o.status == BillPersistenceStatus.UPDATED),
+            sum(1 for o in outcomes if o.status == BillPersistenceStatus.UNCHANGED),
         )
-        
-        await self.session.execute(stmt)
-        await self.session.flush()
-        
-        logger.info(f"Upserted {len(bills)} bills (PostgreSQL)")
-        
-        # Fetch and return the models
-        natural_keys = [
-            (b.jurisdiction, b.parliament, b.session, b.number)
-            for b in bills
-        ]
-        
-        result = await self.session.execute(
-            select(BillModel).where(
-                or_(*[
-                    and_(
-                        BillModel.jurisdiction == nk[0],
-                        BillModel.parliament == nk[1],
-                        BillModel.session == nk[2],
-                        BillModel.number == nk[3]
+
+        return outcomes
+    
+    async def _upsert_many_postgresql(self, bills: List[Bill]) -> List[BillPersistenceOutcome]:
+        """Bulk upsert for PostgreSQL with change detection."""
+        outcomes: List[BillPersistenceOutcome] = []
+
+        if not bills:
+            return outcomes
+
+        # Preload existing models for natural keys present in this batch
+        natural_keys = [bill.natural_key() for bill in bills]
+        existing_models: Dict[Tuple[str, int, int, str], BillModel] = {}
+
+        if natural_keys:
+            clauses = [
+                and_(
+                    BillModel.jurisdiction == nk[0],
+                    BillModel.parliament == nk[1],
+                    BillModel.session == nk[2],
+                    BillModel.number == nk[3],
+                )
+                for nk in natural_keys
+            ]
+
+            if clauses:
+                result = await self.session.execute(select(BillModel).where(or_(*clauses)))
+                for model in result.scalars().all():
+                    existing_models[self._model_natural_key(model)] = model
+
+        to_persist: List[tuple[Bill, str, BillPersistenceStatus]] = []
+
+        for bill in bills:
+            content_hash = self._compute_content_hash(bill)
+            nk = bill.natural_key()
+            existing = existing_models.get(nk)
+
+            if existing is None:
+                to_persist.append((bill, content_hash, BillPersistenceStatus.CREATED))
+                continue
+
+            if existing.content_hash == content_hash:
+                outcomes.append(
+                    BillPersistenceOutcome(
+                        model=existing,
+                        status=BillPersistenceStatus.UNCHANGED,
+                        content_hash=content_hash,
                     )
-                    for nk in natural_keys
-                ])
-            )
+                )
+                continue
+
+            to_persist.append((bill, content_hash, BillPersistenceStatus.UPDATED))
+
+        if to_persist:
+            bill_dicts = [
+                self._domain_to_dict(bill, content_hash=content_hash)
+                for bill, content_hash, _ in to_persist
+            ]
+
+            stmt = pg_insert(BillModel).values(bill_dicts)
+            stmt = stmt.on_conflict_do_update(
+                constraint='uq_bill_natural_key',
+                set_={
+                    'title_en': stmt.excluded.title_en,
+                    'title_fr': stmt.excluded.title_fr,
+                    'short_title_en': stmt.excluded.short_title_en,
+                    'short_title_fr': stmt.excluded.short_title_fr,
+                    'sponsor_politician_id': stmt.excluded.sponsor_politician_id,
+                    'sponsor_politician_name': stmt.excluded.sponsor_politician_name,
+                    'introduced_date': stmt.excluded.introduced_date,
+                    'law_status': stmt.excluded.law_status,
+                    'legisinfo_id': stmt.excluded.legisinfo_id,
+                    'legisinfo_status': stmt.excluded.legisinfo_status,
+                    'legisinfo_summary_en': stmt.excluded.legisinfo_summary_en,
+                    'legisinfo_summary_fr': stmt.excluded.legisinfo_summary_fr,
+                    'subject_tags': stmt.excluded.subject_tags,
+                    'committee_studies': stmt.excluded.committee_studies,
+                    'royal_assent_date': stmt.excluded.royal_assent_date,
+                    'royal_assent_chapter': stmt.excluded.royal_assent_chapter,
+                    'related_bill_numbers': stmt.excluded.related_bill_numbers,
+                    'source_openparliament': stmt.excluded.source_openparliament,
+                    'source_legisinfo': stmt.excluded.source_legisinfo,
+                    'last_fetched_at': stmt.excluded.last_fetched_at,
+                    'last_enriched_at': stmt.excluded.last_enriched_at,
+                    'content_hash': stmt.excluded.content_hash,
+                    'updated_at': datetime.utcnow(),
+                }
+            ).returning(BillModel)
+
+            result = await self.session.execute(stmt)
+            await self.session.flush()
+
+            persisted_map = {
+                self._model_natural_key(model): model
+                for model in result.scalars().all()
+            }
+
+            for bill, content_hash, status in to_persist:
+                model = persisted_map.get(bill.natural_key())
+                if not model:
+                    continue
+                outcomes.append(
+                    BillPersistenceOutcome(
+                        model=model,
+                        status=status,
+                        content_hash=content_hash,
+                    )
+                )
+
+        logger.info(
+            "Processed %d bills (PostgreSQL) [created=%d, updated=%d, unchanged=%d]",
+            len(outcomes),
+            sum(1 for o in outcomes if o.status == BillPersistenceStatus.CREATED),
+            sum(1 for o in outcomes if o.status == BillPersistenceStatus.UPDATED),
+            sum(1 for o in outcomes if o.status == BillPersistenceStatus.UNCHANGED),
         )
-        
-        return list(result.scalars().all())
+
+        return outcomes
     
-    def _domain_to_model(self, bill: Bill) -> BillModel:
+    def _compute_content_hash(self, bill: Bill) -> str:
+        """Compute a deterministic hash for the given bill."""
+        return compute_bill_hash(bill)
+
+    @staticmethod
+    def _model_natural_key(model: BillModel) -> Tuple[str, int, int, str]:
+        """Return the natural key tuple for a persisted bill."""
+        return (
+            model.jurisdiction,
+            model.parliament,
+            model.session,
+            model.number,
+        )
+
+    def _domain_to_model(
+        self,
+        bill: Bill,
+        *,
+        content_hash: Optional[str] = None
+    ) -> BillModel:
         """Convert Bill domain model to BillModel ORM model"""
         return BillModel(
             jurisdiction=bill.jurisdiction,
@@ -378,9 +493,15 @@ class BillRepository:
             source_legisinfo=bill.source_legisinfo,
             last_fetched_at=bill.last_fetched_at or datetime.utcnow(),
             last_enriched_at=bill.last_enriched_at,
+            content_hash=content_hash or self._compute_content_hash(bill),
         )
     
-    def _domain_to_dict(self, bill: Bill) -> dict:
+    def _domain_to_dict(
+        self,
+        bill: Bill,
+        *,
+        content_hash: Optional[str] = None
+    ) -> dict:
         """Convert Bill domain model to dict for bulk operations"""
         return {
             'jurisdiction': bill.jurisdiction,
@@ -408,6 +529,7 @@ class BillRepository:
             'source_legisinfo': bill.source_legisinfo,
             'last_fetched_at': bill.last_fetched_at or datetime.utcnow(),
             'last_enriched_at': bill.last_enriched_at,
+            'content_hash': content_hash or self._compute_content_hash(bill),
         }
     
     def _model_to_domain(self, model: BillModel) -> Bill:
