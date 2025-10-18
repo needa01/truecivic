@@ -2,6 +2,7 @@
 
 ### File Length and Structure
 
+- Do not create any new markdown files.
 - Perform a Git for every file touched or modified.
 - Never allow a file to exceed **500 lines**.
 - If a file approaches **400 lines**, break it up immediately into smaller, logically grouped files.
