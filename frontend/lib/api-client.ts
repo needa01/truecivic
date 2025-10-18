@@ -89,6 +89,32 @@ export interface Debate {
   updated_at: string;
 }
 
+export interface Committee {
+  natural_id: string;
+  jurisdiction: string;
+  parliament: number;
+  session: number;
+  committee_slug: string;
+  acronym_en: string | null;
+  acronym_fr: string | null;
+  name_en: string | null;
+  name_fr: string | null;
+  short_name_en: string | null;
+  short_name_fr: string | null;
+  chamber: string;
+  parent_committee: string | null;
+  source_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CommitteeList {
+  committees: Committee[];
+  total: number;
+  skip: number;
+  limit: number;
+}
+
 class ApiClient {
   private baseUrl: string;
 
@@ -207,6 +233,28 @@ class ApiClient {
 
   async getDebateById(id: number): Promise<Debate> {
     return this.request<Debate>(`/debates/${id}`);
+  }
+
+  // Committees
+  async getCommittees(params?: {
+    parliament?: number;
+    session?: number;
+    chamber?: string;
+    slug?: string;
+    skip?: number;
+    limit?: number;
+  }): Promise<CommitteeList> {
+    const query = new URLSearchParams();
+    if (params?.parliament) query.set('parliament', params.parliament.toString());
+    if (params?.session) query.set('session', params.session.toString());
+    if (params?.chamber) query.set('chamber', params.chamber);
+    if (params?.slug) query.set('slug', params.slug);
+    if (typeof params?.skip === 'number') query.set('skip', params.skip.toString());
+    if (typeof params?.limit === 'number') query.set('limit', params.limit.toString());
+
+    const queryString = query.toString();
+    const endpoint = queryString ? `/committees?${queryString}` : `/committees`;
+    return this.request<CommitteeList>(endpoint);
   }
 }
 
