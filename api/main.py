@@ -53,6 +53,7 @@ async def root():
             "votes": "/api/v1/ca/votes",
             "debates": "/api/v1/ca/debates",
             "committees": "/api/v1/ca/committees",
+            "feeds": "/api/v1/ca/feeds",
             "docs": "/docs"
         }
     }
@@ -82,7 +83,7 @@ async def global_exception_handler(request, exc):
 
 
 # Import and include routers
-from api.v1.endpoints import bills, politicians, votes, debates, committees
+from api.v1.endpoints import bills, politicians, votes, debates, committees, feeds
 
 app.include_router(
     bills.router,
@@ -112,6 +113,12 @@ app.include_router(
     committees.router,
     prefix="/api/v1/ca",
     tags=["committees"]
+)
+
+app.include_router(
+    feeds.router,
+    prefix="/api/v1/ca",
+    tags=["feeds"]
 )
 
 
