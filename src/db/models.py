@@ -16,6 +16,7 @@ from sqlalchemy import (
     PrimaryKeyConstraint, ForeignKeyConstraint
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from pgvector.sqlalchemy import Vector
 
 
 class Base(DeclarativeBase):
@@ -116,6 +117,12 @@ class BillModel(Base):
         nullable=True
     )
     
+    content_hash: Mapped[Optional[str]] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True
+    )
+
     # Source tracking
     source_openparliament: Mapped[bool] = mapped_column(
         Boolean,
@@ -423,6 +430,8 @@ class CommitteeModel(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     jurisdiction: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     committee_code: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    committee_slug: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    source_slug: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     name_en: Mapped[str] = mapped_column(String(200), nullable=False)
     name_fr: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     chamber: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -434,10 +443,12 @@ class CommitteeModel(Base):
     
     __table_args__ = (
         UniqueConstraint('jurisdiction', 'committee_code', name='uq_committee_natural_key'),
+        UniqueConstraint('committee_slug', name='uq_committee_slug'),
+        Index('idx_committee_slug', 'committee_slug'),
     )
     
     def __repr__(self) -> str:
-        return f"<CommitteeModel(id={self.id}, code={self.committee_code})>"
+        return f"<CommitteeModel(id={self.id}, slug={self.committee_slug}, code={self.committee_code})>"
 
 
 class DebateModel(Base):
@@ -528,7 +539,7 @@ class EmbeddingModel(Base):
     document_id: Mapped[int] = mapped_column(Integer, ForeignKey('documents.id'), nullable=False, index=True)
     chunk_id: Mapped[int] = mapped_column(Integer, nullable=False)
     chunk_text: Mapped[str] = mapped_column(Text, nullable=False)
-    vector: Mapped[str] = mapped_column(Text, nullable=False)  # JSON array of floats (1536 dims)
+    vector: Mapped[List[float]] = mapped_column(Vector(1536), nullable=False)
     token_count: Mapped[int] = mapped_column(Integer, nullable=False)
     start_char: Mapped[int] = mapped_column(Integer, nullable=False)
     end_char: Mapped[int] = mapped_column(Integer, nullable=False)
