@@ -26,7 +26,8 @@ class Environment(str, Enum):
 class DatabaseConfig(BaseSettings):
     """Database configuration"""
     
-    # Connection settings
+    # Connection settings - prioritize DATABASE_URL env var
+    database_url: Optional[str] = Field(default=None, alias="DATABASE_URL")
     driver: str = Field(default="sqlite+aiosqlite")
     host: Optional[str] = Field(default=None)
     port: Optional[int] = Field(default=None)
@@ -47,7 +48,8 @@ class DatabaseConfig(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="DB_",
         case_sensitive=False,
-        extra="ignore"
+        extra="ignore",
+        populate_by_name=True  # Allow alias matching
     )
     
     @property
@@ -58,6 +60,15 @@ class DatabaseConfig(BaseSettings):
         Returns:
             SQLAlchemy connection string
         """
+        # Use DATABASE_URL env var if provided (Railway sets this)
+        if self.database_url:
+            # Convert async driver if needed
+            url = self.database_url
+            # Ensure async driver for async connections
+            if "postgresql" in url and "+asyncpg" not in url and "+psycopg" not in url:
+                url = url.replace("postgresql://", "postgresql+asyncpg://")
+            return url
+        
         if self.driver.startswith("sqlite"):
             # SQLite: use local file path
             db_path = Path(self.database)
@@ -85,6 +96,14 @@ class DatabaseConfig(BaseSettings):
         Returns:
             SQLAlchemy sync connection string (without async drivers)
         """
+        # Use DATABASE_URL env var if provided, convert to sync driver
+        if self.database_url:
+            url = self.database_url
+            # Convert async drivers to sync equivalents
+            url = url.replace("+asyncpg", "+psycopg2")
+            url = url.replace("+aiosqlite", "")
+            return url
+        
         # Replace async drivers with sync equivalents
         sync_driver = self.driver.replace("+aiosqlite", "").replace("+asyncpg", "+psycopg2")
         
