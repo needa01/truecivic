@@ -200,3 +200,27 @@ class Database:
 
 # Global database instance
 db = Database()
+
+
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    """
+    FastAPI dependency for database sessions.
+    
+    Yields an async database session for use in route handlers.
+    Automatically commits on success, rolls back on error.
+    
+    Usage:
+        @app.get("/endpoint")
+        async def endpoint(db: AsyncSession = Depends(get_db)):
+            ...
+    """
+    if not db._initialized:
+        await db.initialize()
+    
+    async with db.get_session() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
