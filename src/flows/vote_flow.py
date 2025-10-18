@@ -5,23 +5,28 @@ Orchestrates the vote adapter to fetch parliamentary votes and vote records.
 """
 import asyncio
 from datetime import datetime
-from typing import List
+from typing import Dict, List, Optional, Set, Tuple
 import logging
 
 from prefect import flow, task, get_run_logger
 from prefect.task_runners import ConcurrentTaskRunner
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from src.adapters.vote_adapter import VoteAdapter
 from src.db.session import async_session_factory
-from src.db.models import VoteModel, VoteRecordModel
+from src.db.models import BillModel, VoteModel, VoteRecordModel
 from src.models.adapter_models import VoteData
 
 logger = logging.getLogger(__name__)
 
 
 @task(name="fetch_votes", retries=2, retry_delay_seconds=30)
-async def fetch_votes_task(parliament: int, session: int, limit: int = 500) -> List[VoteData]:
+async def fetch_votes_task(
+    parliament: int,
+    session: int,
+    limit: int = 500,
+    include_ballots: bool = True,
+) -> List[VoteData]:
     """
     Fetch votes for a parliament session.
     
@@ -37,7 +42,15 @@ async def fetch_votes_task(parliament: int, session: int, limit: int = 500) -> L
     logger.info(f"Fetching votes for Parliament {parliament}, Session {session}")
     
     adapter = VoteAdapter()
-    votes = await adapter.fetch_votes_for_session(parliament, session, limit)
+    try:
+        votes = await adapter.fetch_votes_for_session(
+            parliament,
+            session,
+            limit,
+            include_ballots=include_ballots,
+        )
+    finally:
+        await adapter.close()
     
     logger.info(f"Fetched {len(votes)} votes")
     return votes
@@ -56,12 +69,13 @@ async def fetch_vote_details_task(vote_url: str) -> VoteData:
     """
     logger = get_run_logger()
     adapter = VoteAdapter()
-    vote = await adapter.fetch_vote_detail(vote_url)
-    
-    if vote:
-        logger.info(f"Fetched vote {vote.vote_number} with {len(vote.vote_records)} ballots")
-    
-    return vote
+    try:
+        vote = await adapter.fetch_vote_detail(vote_url)
+        if vote:
+            logger.info(f"Fetched vote {vote.vote_number} with {len(vote.vote_records)} ballots")
+        return vote
+    finally:
+        await adapter.close()
 
 
 @task(name="store_votes", retries=1)
@@ -79,69 +93,111 @@ async def store_votes_task(votes: List[VoteData]) -> int:
     logger.info(f"Storing {len(votes)} votes in database")
     
     stored_count = 0
-    
+    bill_cache: Dict[Tuple[int, int, str], Optional[int]] = {}
+
     async with async_session_factory() as session:
         for vote_data in votes:
             try:
-                # Check if vote already exists
-                existing = await session.get(VoteModel, (vote_data.vote_id, "ca-federal"))
-                
-                if existing:
-                    # Update existing vote
-                    existing.parliament = vote_data.parliament
-                    existing.session = vote_data.session
-                    existing.vote_number = vote_data.vote_number
-                    existing.chamber = vote_data.chamber
-                    existing.vote_date = vote_data.vote_date
-                    existing.vote_description_en = vote_data.vote_description_en
-                    existing.vote_description_fr = vote_data.vote_description_fr
-                    existing.bill_number = vote_data.bill_number
-                    existing.result = vote_data.result
-                    existing.yeas = vote_data.yeas
-                    existing.nays = vote_data.nays
-                    existing.abstentions = vote_data.abstentions
-                    existing.updated_at = datetime.utcnow()
-                    
-                    vote_model = existing
+                stmt = select(VoteModel).where(
+                    VoteModel.jurisdiction == "ca-federal",
+                    VoteModel.vote_id == vote_data.vote_id
+                )
+                existing_result = await session.execute(stmt)
+                vote_model = existing_result.scalar_one_or_none()
+
+                if vote_model:
+                    vote_model.parliament = vote_data.parliament
+                    vote_model.session = vote_data.session
+                    vote_model.vote_number = vote_data.vote_number
+                    vote_model.chamber = vote_data.chamber
+                    vote_model.vote_date = vote_data.vote_date or vote_model.vote_date
+                    vote_model.vote_description_en = vote_data.vote_description_en
+                    vote_model.vote_description_fr = vote_data.vote_description_fr
+                    vote_model.result = vote_data.result
+                    vote_model.yeas = vote_data.yeas
+                    vote_model.nays = vote_data.nays
+                    vote_model.abstentions = vote_data.abstentions
+                    vote_model.updated_at = datetime.utcnow()
                 else:
-                    # Create new vote
                     vote_model = VoteModel(
-                        natural_id=vote_data.vote_id,
                         jurisdiction="ca-federal",
+                        vote_id=vote_data.vote_id,
                         parliament=vote_data.parliament,
                         session=vote_data.session,
                         vote_number=vote_data.vote_number,
                         chamber=vote_data.chamber,
-                        vote_date=vote_data.vote_date,
+                        vote_date=vote_data.vote_date or datetime.utcnow(),
                         vote_description_en=vote_data.vote_description_en,
                         vote_description_fr=vote_data.vote_description_fr,
-                        bill_number=vote_data.bill_number,
                         result=vote_data.result,
                         yeas=vote_data.yeas,
                         nays=vote_data.nays,
                         abstentions=vote_data.abstentions
                     )
                     session.add(vote_model)
-                
-                # Store vote records if present
+                    await session.flush()
+
+                if vote_data.bill_number:
+                    bill_key = (
+                        vote_data.parliament,
+                        vote_data.session,
+                        vote_data.bill_number,
+                    )
+                    if bill_key not in bill_cache:
+                        bill_stmt = select(BillModel.id).where(
+                            BillModel.jurisdiction == "ca-federal",
+                            BillModel.parliament == vote_data.parliament,
+                            BillModel.session == vote_data.session,
+                            BillModel.number == vote_data.bill_number,
+                        )
+                        bill_result = await session.execute(bill_stmt)
+                        bill_cache[bill_key] = bill_result.scalar_one_or_none()
+
+                    vote_model.bill_id = bill_cache[bill_key]
+                else:
+                    vote_model.bill_id = None
+
+                if vote_model.id is None:
+                    await session.flush()
+
                 if vote_data.vote_records:
+                    existing_records_result = await session.execute(
+                        select(VoteRecordModel).where(
+                            VoteRecordModel.vote_id == vote_model.id
+                        )
+                    )
+                    existing_records = {
+                        record.politician_id: record
+                        for record in existing_records_result.scalars()
+                    }
+                    synced_politicians: Set[int] = set()
+
                     for record_data in vote_data.vote_records:
-                        # Check if record exists
-                        record_id = f"{vote_data.vote_id}-{record_data.politician_id}"
-                        existing_record = await session.get(VoteRecordModel, (record_id, "ca-federal"))
-                        
-                        if not existing_record:
-                            record_model = VoteRecordModel(
-                                natural_id=record_id,
-                                jurisdiction="ca-federal",
-                                vote_id=vote_data.vote_id,
-                                politician_id=record_data.politician_id,
-                                vote_position=record_data.vote_position
+                        if record_data.politician_id is None:
+                            continue
+
+                        synced_politicians.add(record_data.politician_id)
+                        existing_record = existing_records.get(
+                            record_data.politician_id
+                        )
+
+                        if existing_record:
+                            existing_record.vote_position = record_data.vote_position
+                        else:
+                            session.add(
+                                VoteRecordModel(
+                                    vote_id=vote_model.id,
+                                    politician_id=record_data.politician_id,
+                                    vote_position=record_data.vote_position,
+                                )
                             )
-                            session.add(record_model)
-                
+
+                    for politician_id, record in existing_records.items():
+                        if politician_id not in synced_politicians:
+                            await session.delete(record)
+
                 stored_count += 1
-                
+
             except Exception as e:
                 logger.error(f"Error storing vote {vote_data.vote_id}: {e}")
         
@@ -181,15 +237,9 @@ async def fetch_votes_flow(
     start_time = datetime.utcnow()
     
     # Fetch votes
-    votes = await fetch_votes_task(parliament, session, limit)
+    votes = await fetch_votes_task(parliament, session, limit, include_ballots)
     
     # Optionally fetch ballot details
-    if include_ballots and votes:
-        logger.info(f"Fetching ballot details for {len(votes)} votes")
-        # Note: This would require vote URLs from the API
-        # For now, we'll skip this step
-        pass
-    
     # Store votes
     stored_count = await store_votes_task(votes)
     
@@ -233,7 +283,10 @@ async def fetch_latest_votes_flow(limit: int = 50) -> dict:
     
     # Fetch latest votes
     adapter = VoteAdapter()
-    votes = await adapter.fetch_latest_votes(limit)
+    try:
+        votes = await adapter.fetch_latest_votes(limit)
+    finally:
+        await adapter.close()
     
     # Store votes
     stored_count = await store_votes_task(votes)
