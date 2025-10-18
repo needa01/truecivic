@@ -83,6 +83,10 @@ Thumbs.db
 dump.sql
 backup/
 
+# Local data files (for frontend development)
+.data/
+*.json.local
+
 # MinIO / Object Storage
 minio-data/
 *.parquet.tmp
