@@ -3,13 +3,18 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import Link from 'next/link';
-import { FileText, Users, Vote, MessageSquare, ArrowRight } from 'lucide-react';
+import { FileText, Users, Vote, MessageSquare, ArrowRight, Gavel, Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export default function Home() {
   const { data: billsData, isLoading: billsLoading } = useQuery({
     queryKey: ['bills', { parliament: 44, session: 1, page: 1, size: 5 }],
     queryFn: () => apiClient.getBills({ parliament: 44, session: 1, page: 1, size: 5 }),
+  });
+
+  const { data: committeesData, isLoading: committeesLoading, isError: committeesError } = useQuery({
+    queryKey: ['committees', { limit: 6 }],
+    queryFn: () => apiClient.getCommittees({ limit: 6 }),
   });
 
   const stats = [
@@ -19,6 +24,13 @@ export default function Home() {
       value: billsData?.total || 0,
       color: 'from-blue-500 to-cyan-500',
       href: '/bills',
+    },
+    {
+      icon: Gavel,
+      label: 'Committees',
+      value: committeesData?.total || 0,
+      color: 'from-indigo-500 to-purple-500',
+      href: '/committees',
     },
     {
       icon: Users,
@@ -89,6 +101,64 @@ export default function Home() {
             </motion.div>
           ))}
         </div>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.4 }}
+          className="mt-16 rounded-3xl border border-slate-800 bg-slate-900/40 backdrop-blur"
+        >
+          <div className="p-8">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-2xl font-semibold text-slate-100">Key Committees</h2>
+                <p className="text-sm text-slate-400">
+                  Tracking the standing committees driving federal hearings.
+                </p>
+              </div>
+              <Link
+                href="/committees"
+                className="inline-flex items-center gap-2 text-sm text-slate-300 hover:text-slate-100 transition-colors"
+              >
+                View all
+                <ArrowRight className="w-4 h-4" />
+              </Link>
+            </div>
+
+            {committeesLoading ? (
+              <div className="flex items-center justify-center py-10 text-slate-400">
+                <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                Loading committees…
+              </div>
+            ) : committeesError ? (
+              <div className="py-10 text-center text-slate-400">
+                Unable to load committees right now.
+              </div>
+            ) : committeesData?.committees?.length ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {committeesData.committees.slice(0, 6).map((committee) => (
+                  <div
+                    key={committee.natural_id}
+                    className="rounded-2xl border border-slate-800 bg-slate-900/50 px-5 py-4 hover:border-slate-700 transition-colors"
+                  >
+                    <p className="text-xs uppercase tracking-wide text-indigo-300">
+                      {committee.committee_slug}
+                    </p>
+                    <h3 className="mt-1 text-sm font-semibold text-slate-100">
+                      {committee.name_en || committee.acronym_en || committee.committee_slug}
+                    </h3>
+                    <p className="mt-2 text-xs text-slate-400">
+                      Chamber: {committee.chamber}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="py-10 text-center text-slate-400">
+                Committee data will appear here once ingestion runs.
+              </div>
+            )}
+          </div>
+        </motion.div>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 border-t border-slate-800">
