@@ -5,26 +5,30 @@ Orchestrates vote data fetching and storage including individual ballot records.
 """
 
 import asyncio
-from datetime import datetime
-from typing import List, Dict, Any, Tuple
+from datetime import datetime, timedelta
+from typing import List, Dict, Any, Tuple, Optional
 import logging
 
 from prefect import flow, task, get_run_logger
 from prefect.task_runners import ConcurrentTaskRunner
 
 from src.adapters.openparliament_votes import OpenParliamentVotesAdapter
+from sqlalchemy import select
+
 from src.db.session import async_session_factory
 from src.db.repositories.vote_repository import VoteRepository, VoteRecordRepository
-from src.db.models import PoliticianModel
+from src.db.models import PoliticianModel, BillModel
+from src.utils import dedupe_by_key
 
 logger = logging.getLogger(__name__)
 
 
 @task(name="fetch_votes_batch", retries=2, retry_delay_seconds=30)
 async def fetch_votes_batch_task(
-    parliament: int, 
-    session: int, 
-    limit: int = 100
+    parliament: int,
+    session: int,
+    limit: int = 100,
+    start_date: Optional[datetime] = None,
 ) -> List[Dict[str, Any]]:
     """
     Fetch votes for a parliament session.
@@ -41,7 +45,7 @@ async def fetch_votes_batch_task(
     logger_task.info(f"Fetching votes for Parliament {parliament}, Session {session}")
     
     adapter = OpenParliamentVotesAdapter()
-    response = await adapter.fetch_votes(
+    response = await adapter.fetch(
         limit=limit,
         parliament=parliament,
         session=session
@@ -50,8 +54,36 @@ async def fetch_votes_batch_task(
     if response.errors:
         logger_task.error(f"Errors fetching votes: {response.errors}")
     
-    logger_task.info(f"Fetched {response.total_fetched} votes")
-    return response.records
+    records = response.data or []
+
+    window_start = start_date or datetime.utcnow() - timedelta(days=3650)
+
+    filtered: List[Dict[str, Any]] = []
+    for vote in records:
+        vote_date = vote.get("vote_date")
+        parsed_date: Optional[datetime]
+        if isinstance(vote_date, str):
+            try:
+                parsed_date = datetime.fromisoformat(vote_date.replace("Z", "+00:00"))
+            except ValueError:
+                parsed_date = None
+        elif isinstance(vote_date, datetime):
+            parsed_date = vote_date
+        else:
+            parsed_date = None
+        
+        if parsed_date is None or parsed_date < window_start:
+            continue
+        
+        vote["vote_date"] = parsed_date
+        filtered.append(vote)
+
+    filtered, duplicates = dedupe_by_key(filtered, lambda v: v.get("vote_id"))
+    if duplicates:
+        logger_task.warning("Removed %s duplicate votes", duplicates)
+    
+    logger_task.info(f"Fetched {len(filtered)} votes after filtering")
+    return filtered
 
 
 @task(name="fetch_vote_records_for_vote", retries=2, retry_delay_seconds=30)
@@ -76,9 +108,15 @@ async def fetch_vote_records_task(vote_id: str) -> List[Dict[str, Any]]:
         return []
     
     # Extract MP votes from the response
-    if response.records and len(response.records) > 0:
-        vote_data = response.records[0]
+    records = response.data or []
+    if records:
+        vote_data = records[0]
         mp_votes = vote_data.get("mp_votes", [])
+        mp_votes, duplicates = dedupe_by_key(mp_votes, lambda r: r.get("politician_id"))
+        if duplicates:
+            logger_task.warning(
+                "Removed %s duplicate MP vote records for %s", duplicates, vote_id
+            )
         logger_task.info(f"Fetched {len(mp_votes)} vote records for {vote_id}")
         return mp_votes
     
@@ -102,11 +140,52 @@ async def store_votes_batch_task(votes_data: List[Dict[str, Any]]) -> Dict[str, 
     if not votes_data:
         return {"created": 0, "updated": 0}
     
+    votes_data, duplicates = dedupe_by_key(votes_data, lambda v: v.get("vote_id"))
+    if duplicates:
+        logger_task.warning("Removed %s duplicate votes before storage", duplicates)
+    
     async with async_session_factory() as session:
         vote_repo = VoteRepository(session)
+        allowed_keys = {
+            "jurisdiction",
+            "vote_id",
+            "parliament",
+            "session",
+            "vote_number",
+            "chamber",
+            "vote_date",
+            "vote_description_en",
+            "vote_description_fr",
+            "result",
+            "yeas",
+            "nays",
+            "abstentions",
+            "created_at",
+            "updated_at",
+        }
+
+        sanitized_votes: List[Dict[str, Any]] = []
+        for vote in votes_data:
+            sanitized = {k: v for k, v in vote.items() if k in allowed_keys}
+            sanitized.setdefault("jurisdiction", "ca")
+
+            vote_date = sanitized.get("vote_date")
+            if vote_date is None:
+                sanitized["vote_date"] = datetime.utcnow()
+
+            bill_id = None
+            bill_number = vote.get("bill_number")
+            if bill_number:
+                result = await session.execute(
+                    select(BillModel.id).where(BillModel.number == bill_number)
+                )
+                bill_id = result.scalar_one_or_none()
+            sanitized["bill_id"] = bill_id
+
+            sanitized_votes.append(sanitized)
         
         # Use batch upsert
-        stored_votes = await vote_repo.upsert_many(votes_data)
+        stored_votes = await vote_repo.upsert_many(sanitized_votes)
         await session.commit()
         
         logger_task.info(f"Stored {len(stored_votes)} votes")
@@ -152,16 +231,21 @@ async def store_vote_records_batch_task(
             if not op_politician_id:
                 continue
             
-            # Find politician by OpenParliament ID
-            # TODO: This requires a mapping table or field in PoliticianModel
-            # For now, we'll skip records where we can't find the politician
-            # In production, we need a politician_mappings table or openparliament_id field
+            result = await session.execute(
+                select(PoliticianModel.id).where(PoliticianModel.id == op_politician_id)
+            )
+            politician_id = result.scalar_one_or_none()
+            if not politician_id:
+                logger_task.warning(
+                    f"Skipping vote record for politician {op_politician_id} (not found in database)"
+                )
+                continue
             
-            # Placeholder: assume politician_id maps directly (needs fixing)
             records_to_insert.append({
                 "vote_id": vote_db_id,
-                "politician_id": op_politician_id,  # TODO: Map to our DB ID
-                "vote_position": record.get("vote_position", "Unknown")
+                "politician_id": politician_id,
+                "vote_position": record.get("vote_position", "Unknown"),
+                "created_at": datetime.utcnow(),
             })
         
         if records_to_insert:
@@ -201,7 +285,8 @@ async def fetch_votes_with_records_flow(
     parliament: int = 44,
     session: int = 1,
     limit: int = 100,
-    fetch_records: bool = True
+    fetch_records: bool = True,
+    start_date: Optional[datetime] = None,
 ) -> Dict[str, Any]:
     """
     Main flow to fetch and store votes with optional individual MP records.
@@ -211,6 +296,7 @@ async def fetch_votes_with_records_flow(
         session: Session number (default: 1)
         limit: Maximum votes to fetch (default: 100)
         fetch_records: Whether to fetch individual MP voting records (default: True)
+        start_date: Earliest vote date to include (defaults to 10-year window)
         
     Returns:
         Dictionary with flow results
@@ -221,7 +307,12 @@ async def fetch_votes_with_records_flow(
     start_time = datetime.utcnow()
     
     # Step 1: Fetch votes
-    votes_data = await fetch_votes_batch_task(parliament, session, limit)
+    votes_data = await fetch_votes_batch_task(
+        parliament=parliament,
+        session=session,
+        limit=limit,
+        start_date=start_date,
+    )
     
     if not votes_data:
         return {
@@ -286,7 +377,10 @@ async def fetch_votes_with_records_flow(
     task_runner=ConcurrentTaskRunner(),
     log_prints=True
 )
-async def fetch_latest_votes_hourly_flow(limit: int = 50) -> Dict[str, Any]:
+async def fetch_latest_votes_hourly_flow(
+    limit: int = 50,
+    start_date: Optional[datetime] = None,
+) -> Dict[str, Any]:
     """
     Hourly scheduled flow to fetch the most recent votes.
     
@@ -303,20 +397,46 @@ async def fetch_latest_votes_hourly_flow(limit: int = 50) -> Dict[str, Any]:
     
     # Fetch latest votes (no filters, just latest)
     adapter = OpenParliamentVotesAdapter()
-    response = await adapter.fetch_votes(limit=limit)
+    response = await adapter.fetch(limit=limit)
     
     if response.errors:
         logger_flow.error(f"Errors fetching votes: {response.errors}")
         return {"status": "error", "errors": response.errors}
     
-    votes_data = response.records
+    records = response.data or []
+
+    window_start = start_date or datetime.utcnow() - timedelta(days=3650)
+
+    filtered: List[Dict[str, Any]] = []
+    for vote in records:
+        vote_date = vote.get("vote_date")
+        parsed_date: Optional[datetime]
+        if isinstance(vote_date, str):
+            try:
+                parsed_date = datetime.fromisoformat(vote_date.replace("Z", "+00:00"))
+            except ValueError:
+                parsed_date = None
+        elif isinstance(vote_date, datetime):
+            parsed_date = vote_date
+        else:
+            parsed_date = None
+
+        if parsed_date is None or parsed_date < window_start:
+            continue
+
+        vote["vote_date"] = parsed_date
+        filtered.append(vote)
+
+    filtered, duplicates = dedupe_by_key(filtered, lambda v: v.get("vote_id"))
+    if duplicates:
+        logger_flow.warning("Removed %s duplicate votes in hourly flow", duplicates)
     
     # Store votes
-    store_result = await store_votes_batch_task(votes_data)
+    store_result = await store_votes_batch_task(filtered)
     
     # Fetch records for recent votes (first 20)
     total_records = 0
-    for vote_data in votes_data[:20]:
+    for vote_data in filtered[:20]:
         vote_id = vote_data.get("vote_id")
         if vote_id:
             vote_db_id = await get_vote_db_id_task("ca", vote_id)
@@ -335,7 +455,7 @@ async def fetch_latest_votes_hourly_flow(limit: int = 50) -> Dict[str, Any]:
     
     result = {
         "status": "success",
-        "votes_fetched": len(votes_data),
+        "votes_fetched": len(filtered),
         "votes_stored": store_result.get("stored", 0),
         "records_stored": total_records,
         "duration_seconds": duration,
