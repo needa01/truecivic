@@ -9,9 +9,11 @@ Responsibility: Define database schema and ORM mappings
 
 from datetime import datetime
 from typing import Optional, List
+import sqlalchemy as sa
 from sqlalchemy import (
     String, Integer, DateTime, Boolean, Text, JSON,
-    ForeignKey, Index, UniqueConstraint, CheckConstraint
+    ForeignKey, Index, UniqueConstraint, CheckConstraint,
+    PrimaryKeyConstraint, ForeignKeyConstraint
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -564,4 +566,60 @@ class RankingModel(Base):
     
     def __repr__(self) -> str:
         return f"<RankingModel(id={self.id}, type={self.entity_type}, score={self.score})>"
+
+
+class IgnoredBillModel(Base):
+    """Database model for bills ignored by anonymous users."""
+    
+    __tablename__ = "ignored_bill"
+    
+    id: Mapped[int] = mapped_column(Integer, autoincrement=True)
+    natural_id: Mapped[str] = mapped_column(String(255), nullable=False, comment="Unique identifier for this ignore record")
+    jurisdiction: Mapped[str] = mapped_column(String(50), nullable=False, comment="Jurisdiction (e.g., ca-federal)")
+    device_id: Mapped[str] = mapped_column(String(255), nullable=False, comment="Anonymous device identifier")
+    bill_id: Mapped[int] = mapped_column(Integer, ForeignKey('bills.id', ondelete='CASCADE'), nullable=False, comment="Foreign key to bills.id")
+    ignored_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=sa.text('now()'))
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=sa.text('now()'))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=sa.text('now()'))
+    
+    __table_args__ = (
+        PrimaryKeyConstraint('natural_id', 'jurisdiction', name='pk_ignored_bill'),
+        Index('idx_ignored_bill_device', 'device_id', 'jurisdiction'),
+        Index('idx_ignored_bill_bill', 'bill_id'),
+        Index('idx_ignored_bill_ignored_at', 'ignored_at'),
+    )
+    
+    def __repr__(self) -> str:
+        return f"<IgnoredBillModel(id={self.id}, device={self.device_id}, bill={self.bill_id})>"
+
+
+class PersonalizedFeedTokenModel(Base):
+    """Database model for personalized feed tokens."""
+    
+    __tablename__ = "personalized_feed_token"
+    
+    id: Mapped[int] = mapped_column(Integer, autoincrement=True)
+    natural_id: Mapped[str] = mapped_column(String(255), nullable=False, comment="Token UUID")
+    jurisdiction: Mapped[str] = mapped_column(String(50), nullable=False, comment="Jurisdiction (e.g., ca-federal)")
+    device_id: Mapped[str] = mapped_column(String(255), nullable=False, comment="Anonymous device identifier")
+    token: Mapped[str] = mapped_column(String(255), nullable=False, comment="Unique feed token")
+    feed_type: Mapped[str] = mapped_column(String(50), nullable=False, comment="Type: bills, votes, debates, all")
+    filters_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True, comment="Filter preferences as JSON")
+    last_accessed: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, comment="Last time feed was accessed")
+    access_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default='0', comment="Number of accesses")
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=sa.text('now()'))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=sa.text('now()'))
+    
+    __table_args__ = (
+        PrimaryKeyConstraint('natural_id', 'jurisdiction', name='pk_personalized_feed_token'),
+        UniqueConstraint('token', name='uq_personalized_feed_token_token'),
+        Index('idx_feed_token_device', 'device_id', 'jurisdiction'),
+        Index('idx_feed_token_token', 'token', unique=True),
+        Index('idx_feed_token_last_accessed', 'last_accessed'),
+    )
+    
+    def __repr__(self) -> str:
+        return f"<PersonalizedFeedTokenModel(id={self.id}, token={self.token}, type={self.feed_type})>"
 

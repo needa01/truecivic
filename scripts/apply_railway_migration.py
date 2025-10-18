@@ -56,6 +56,9 @@ def apply_railway_migration():
     alembic_cfg = Config("alembic.ini")
     alembic_cfg.set_main_option("sqlalchemy.url", database_url)
     
+    # Set environment variable so env.py picks up the right database
+    os.environ["DATABASE_PUBLIC_URL"] = database_url
+    
     try:
         # Show current version
         print("📋 Checking current migration version...")
@@ -97,17 +100,18 @@ def apply_railway_migration():
             print(f"📊 Final revision: {final_rev}")
         
         print()
-        print("📋 New tables created:")
-        print("   ✅ parties")
-        print("   ✅ ridings")
-        print("   ✅ votes")
-        print("   ✅ vote_records")
-        print("   ✅ committees")
-        print("   ✅ debates")
-        print("   ✅ speeches")
-        print("   ✅ documents")
-        print("   ✅ embeddings")
-        print("   ✅ rankings")
+        print("📋 Schema components:")
+        print("   ✅ parties, ridings (initial)")
+        print("   ✅ votes, vote_records")
+        print("   ✅ committees, debates, speeches")
+        print("   ✅ documents, embeddings, rankings")
+        print("   ✅ ignored_bill (personalization)")
+        print("   ✅ personalized_feed_token (personalization)")
+        print("   ✅ mv_feed_all (materialized view)")
+        print("   ✅ mv_feed_bills_latest (materialized view)")
+        print("   ✅ mv_feed_bills_by_tag (materialized view)")
+        print("   ✅ HNSW vector index (fast similarity search)")
+        print("   ✅ GIN full-text indexes (bills, debates, speeches)")
         print()
         
         return 0

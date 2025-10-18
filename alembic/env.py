@@ -33,7 +33,9 @@ target_metadata = Base.metadata
 
 # Override database URL from settings (respects environment variables)
 # Use sync connection string for Alembic (migrations don't support async)
-config.set_main_option("sqlalchemy.url", settings.db.sync_connection_string)
+# Only override if not already set by script (e.g., apply_railway_migration.py)
+if not config.get_main_option("sqlalchemy.url") or "sqlite" in config.get_main_option("sqlalchemy.url"):
+    config.set_main_option("sqlalchemy.url", settings.db.sync_connection_string)
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
