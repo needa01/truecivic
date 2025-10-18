@@ -14,7 +14,7 @@ class Committee(BaseModel):
     jurisdiction: str = Field(description="Jurisdiction (e.g., ca-federal)")
     parliament: int = Field(description="Parliament number")
     session: int = Field(description="Session number")
-    committee_slug: str = Field(description="Committee slug/short code")
+    committee_slug: str = Field(description="Jurisdiction-prefixed committee slug (e.g., ca-HUMA)")
     acronym_en: Optional[str] = Field(None, description="English acronym")
     acronym_fr: Optional[str] = Field(None, description="French acronym")
     name_en: Optional[str] = Field(None, description="English name")
@@ -35,7 +35,7 @@ class Committee(BaseModel):
                 "jurisdiction": "ca-federal",
                 "parliament": 44,
                 "session": 1,
-                "committee_slug": "HUMA",
+                "committee_slug": "ca-HUMA",
                 "acronym_en": "HUMA",
                 "acronym_fr": "HUMA",
                 "name_en": "Standing Committee on Human Resources, Skills and Social Development and the Status of Persons with Disabilities",
