@@ -8,13 +8,11 @@ Responsibility: Orchestration of debate data pipeline
 
 import asyncio
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import logging
 
 from prefect import flow, task, get_run_logger
 from prefect.task_runners import ConcurrentTaskRunner
-from prefect.schedules import IntervalSchedule
-
 from src.adapters.openparliament_debates import OpenParliamentDebatesAdapter
 from src.db.session import async_session_factory
 from src.db.repositories.speech_repository import SpeechRepository
@@ -27,8 +25,8 @@ logger = logging.getLogger(__name__)
 async def fetch_debates_task(
     limit: int = 100,
     offset: int = 0,
-    parliament: int = None,
-    session: int = None
+    parliament: Optional[int] = None,
+    session: Optional[int] = None
 ) -> List[Dict[str, Any]]:
     """
     Fetch parliamentary debates.
@@ -46,7 +44,7 @@ async def fetch_debates_task(
     logger_task.info(f"Fetching debates: limit={limit}, offset={offset}")
     
     adapter = OpenParliamentDebatesAdapter()
-    response = await adapter.fetch_debates(
+    response = await adapter.fetch(
         limit=limit,
         offset=offset,
         parliament=parliament,
@@ -56,8 +54,9 @@ async def fetch_debates_task(
     if response.errors:
         logger_task.error(f"Errors fetching debates: {response.errors}")
     
-    logger_task.info(f"Fetched {response.total_fetched} debates")
-    return response.records
+    records = response.data or []
+    logger_task.info(f"Fetched {len(records)} debates")
+    return records
 
 
 @task(name="fetch_debate_speeches", retries=2, retry_delay_seconds=30)
@@ -80,8 +79,9 @@ async def fetch_debate_speeches_task(debate_id: str) -> List[Dict[str, Any]]:
     if response.errors:
         logger_task.error(f"Errors fetching speeches: {response.errors}")
     
-    logger_task.info(f"Fetched {response.total_fetched} speeches for debate {debate_id}")
-    return response.records
+    records = response.data or []
+    logger_task.info(f"Fetched {len(records)} speeches for debate {debate_id}")
+    return records
 
 
 @task(name="fetch_politician_speeches", retries=2, retry_delay_seconds=30)
@@ -111,8 +111,9 @@ async def fetch_politician_speeches_task(
     if response.errors:
         logger_task.error(f"Errors fetching speeches: {response.errors}")
     
-    logger_task.info(f"Fetched {response.total_fetched} speeches for politician")
-    return response.records
+    records = response.data or []
+    logger_task.info(f"Fetched {len(records)} speeches for politician")
+    return records
 
 
 @task(name="store_debates", retries=1)
@@ -267,8 +268,8 @@ async def fetch_recent_debates_flow(limit: int = 50) -> Dict[str, Any]:
 @flow(name="fetch_debates_with_speeches_flow", task_runner=ConcurrentTaskRunner())
 async def fetch_debates_with_speeches_flow(
     limit: int = 10,
-    parliament: int = None,
-    session: int = None
+    parliament: Optional[int] = None,
+    session: Optional[int] = None
 ) -> Dict[str, Any]:
     """
     Fetch debates and store all speeches from each debate.
