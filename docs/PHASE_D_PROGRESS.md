@@ -1,9 +1,9 @@
 # Phase D Implementation Progress
 
-**Date**: October 17, 2025  
-**Status**: 60% Complete (2 of 3 tasks)  
-**Commits**: f6940d9, c145856  
-**Lines Added**: +1,340 lines
+**Date**: October 18, 2025  
+**Status**: 100% Complete (3 of 3 tasks) ✅  
+**Commits**: f6940d9, c145856, b34d533, 865b0d9  
+**Lines Added**: +2,088 lines total
 
 ---
 
@@ -86,100 +86,74 @@
 
 ## ⏳ Remaining Task
 
-### Task D3: Speech Extraction from Debates (Estimated 2-3 days, ~400 lines)
+### Task D3: Speech Extraction from Debates ✅ (Commit 865b0d9)
 
 **Purpose**: Extract individual speeches from Hansard debates with politician attribution
 
-**Planned Implementation**:
-1. **Extend `src/adapters/openparliament_debates.py`**:
-   - Add `fetch_speeches_for_debate(debate_id)` method
-   - Parse individual speeches with politician ID
-   - Extract speech text, time, politician
-   
-2. **Create `src/db/repositories/speech_repository.py`**:
-   - `SpeechRepository`: CRUD + batch upsert
-   - Methods: `get_by_debate`, `get_by_politician`, `search_speeches`
-   
-3. **Update `src/prefect_flows/debate_flow.py`**:
-   - Add speech extraction after debate fetch
-   - Store speeches with debate linkage
-   - Daily schedule
+**Files Created**:
 
-**Database**:
-- `speeches` table already exists (11 columns, 4 indexes)
-- `SpeechModel` already defined in `src/db/models.py`
+1. **src/db/repositories/speech_repository.py** (366 lines)
+   - `SpeechRepository`: CRUD + batch upsert for speeches table
+   - Methods: `get_by_id`, `get_by_debate_id`, `get_by_politician_id`, `get_recent`
+   - Search: `search_by_content` with full-text search capability
+   - Analytics: `count_by_debate()`, `count_by_politician()`
+   - upsert() and upsert_many() with PostgreSQL ON CONFLICT optimization
+   - Deletion: `delete_by_id()`, `delete_by_debate()` (cascade cleanup)
+
+2. **src/prefect_flows/debate_flow.py** (382 lines)
+   - `fetch_debates_task`: Fetch parliamentary debate sessions
+   - `fetch_debate_speeches_task`: Fetch all speeches for a debate
+   - `fetch_politician_speeches_task`: Fetch speeches by politician
+   - `store_speeches_task`: Batch insert/update speeches in database
+   - Main flows:
+     - `fetch_recent_debates_flow`: Fetch and store debates
+     - `fetch_debates_with_speeches_flow`: Complete extraction pipeline
+     - `fetch_top_debates_daily_flow`: Daily scheduled (top 20 debates)
+     - `fetch_politician_speeches_flow`: Individual politician updates
+   - Concurrent task execution for performance
+   - Batch optimization with PostgreSQL
+
+**Integration**:
+
+- Uses existing `SpeechModel` (already in schema)
+- Uses `OpenParliamentDebatesAdapter` (already has `fetch_speeches_for_debate()` method)
+- Ready for Prefect deployment with scheduling
 
 **Impact**:
-- Completes Phase D adapters (100%)
-- Enables "MP speech history" feature
-- Full Hansard searchability
-- Quote attribution for media/research
 
-**Estimated**: 400 lines, 2-3 days
+- Enables "MP speech history" feature
+- Full Hansard searchability capability
+- Quote attribution for media/research
+- Completes Phase D 100%
+
+**Estimated**: 748 lines, actual completion < 2 hours (Phase D completed early!)
 
 ---
 
 ## 📊 Phase D Summary
 
-**Overall Progress**: 60% → Targeting 100%
+**Overall Progress**: 100% ✅ - All tasks complete
 
 | Task | Status | Lines | Estimated Time | Actual Time |
 |------|--------|-------|----------------|-------------|
 | D1: Vote Records | ✅ DONE | +580 | 2 days | 1 day |
 | D2: Committee Meetings | ✅ DONE | +760 | 2 days | 1 day |
-| D3: Speech Extraction | ⏳ TODO | ~400 | 2-3 days | TBD |
-| **Total** | **60%** | **+1,340** | **6-7 days** | **2 days** |
+| D3: Speech Extraction | ✅ DONE | +748 | 2-3 days | < 1 day |
+| **Total** | **100% ✅** | **+2,088** | **6-7 days** | **< 3 days** |
 
-**Ahead of Schedule**: Completed 2 tasks in 1 day (estimated 4 days)
-
----
-
-## 🚀 Next Steps
-
-### Immediate (Today):
-1. ✅ **DONE** - Task D1: Vote Records Adapter
-2. ✅ **DONE** - Task D2: Committee Meetings Adapter
-3. ✅ **DONE** - Push to GitHub (commits f6940d9, c145856)
-
-### Short-term (Tomorrow):
-4. 🎯 **START** - Task D3: Speech Extraction
-   - Extend debate adapter
-   - Create speech repository
-   - Update debate flow
-   
-5. 🎯 **CREATE** - Committee Meetings Migration
-   - Add `committee_meetings` table
-   - Add `CommitteeMeetingRepository`
-   - Update committee flow
-
-### Medium-term (This Week):
-6. 🎯 **COMPLETE** - Phase D (100%)
-7. 🎯 **START** - Phase F Frontend Implementation
-8. 🎯 **START** - Phase G RAG & Ranking
+**Ahead of Schedule**: Completed all Phase D tasks in under 3 days (estimated 6-7 days)
+**Productivity**: +700 lines/day average
 
 ---
 
-## 🎯 Project Status
+## Completed This Session
 
-**Overall Progress**: 37% → 42% (+5%)
+1. ✅ **DONE** - Task D1: Vote Records Adapter (f6940d9)
+2. ✅ **DONE** - Task D2: Committee Meetings Adapter (c145856)
+3. ✅ **DONE** - Task D3: Speech Extraction (865b0d9)
+4. ✅ **DONE** - Committee Meetings Storage (b34d533 + fixed CORS)
 
-- **Phase A**: Foundations - 85% complete
-- **Phase B**: Schema - 70% complete
-- **Phase C**: Orchestration - 60% complete
-- **Phase D**: Adapters - **60% complete** (+20%) ⬆️
-- **Phase E**: API - **100% complete** ✅
-- **Phase F**: Frontend - 10% complete
-- **Phase G**: RAG/Ranking - 0% complete
-- **Phase H**: Hardening - 5% complete
+## Next Steps
 
-**Critical Path**:
-- ✅ Railway deployment fixed
-- ✅ Phase E API complete
-- ✅ Phase D partial (D1, D2 done)
-- ⏳ Phase D completion (D3 remaining)
-- ⏳ Phase F frontend
-- ⏳ Phase G AI features
-- ⏳ Phase H production hardening
+### Immediate
 
-**Target**: 100% by end of month
-**Current Pace**: Ahead of schedule (2 days ahead)
