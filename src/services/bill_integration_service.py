@@ -8,7 +8,7 @@ Responsibility: Integrate pipeline orchestration with database persistence
 """
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 import logging
 
 from ..orchestration.bill_pipeline import BillPipeline
@@ -17,6 +17,9 @@ from ..db.repositories import BillRepository
 from ..db.models import FetchLogModel
 from ..models.adapter_models import AdapterStatus
 from ..models.bill import Bill
+
+if TYPE_CHECKING:
+    from ..db.session import Database
 
 logger = logging.getLogger(__name__)
 
@@ -31,25 +34,42 @@ class BillIntegrationService:
     3. Log fetch operations for monitoring
     
     Example:
+        # With async context manager (recommended)
+        async with BillIntegrationService(db) as service:
+            result = await service.fetch_and_persist(
+                parliament=44,
+                session=1,
+                limit=100,
+                enrich=True
+            )
+        
+        # Or without context manager
         service = BillIntegrationService()
-        
-        # Fetch and persist bills
-        result = await service.fetch_and_persist(
-            parliament=44,
-            session=1,
-            limit=100,
-            enrich=True
-        )
-        
-        print(f"Persisted {result['persisted_count']} bills")
+        result = await service.fetch_and_persist(limit=100)
+        await service.close()
     """
     
-    def __init__(self):
-        """Initialize integration service"""
+    def __init__(self, database: Optional["Database"] = None):
+        """
+        Initialize integration service.
+        
+        Args:
+            database: Optional Database instance (if None, uses global db)
+        """
+        self.database = database
         self.pipeline = BillPipeline(
             enrich_by_default=True,
             max_enrichment_errors=10
         )
+    
+    async def __aenter__(self):
+        """Async context manager entry"""
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit"""
+        await self.close()
+        return False
     
     async def fetch_and_persist(
         self,
@@ -111,7 +131,10 @@ class BillIntegrationService:
             persist_errors = []
             
             if bills:
-                async with db.session() as session_db:
+                # Use the database instance from __init__ if provided, otherwise use global
+                database_to_use = self.database if self.database else db
+                
+                async with database_to_use.session() as session_db:
                     repo = BillRepository(session_db)
                     
                     try:
@@ -139,7 +162,10 @@ class BillIntegrationService:
             # Stage 3: Log fetch operation
             duration = (datetime.utcnow() - start_time).total_seconds()
             
-            async with db.session() as session_db:
+            # Use the database instance from __init__ if provided, otherwise use global
+            database_to_use = self.database if self.database else db
+            
+            async with database_to_use.session() as session_db:
                 await self._log_fetch_operation(
                     session_db=session_db,
                     source="bill_integration_service",
@@ -163,13 +189,14 @@ class BillIntegrationService:
             
             # Build result
             result = {
-                "fetched_count": len(bills),
+                "bills_fetched": len(bills),
                 "persisted_count": created_count + updated_count,
-                "created_count": created_count,
-                "updated_count": updated_count,
+                "created": created_count,
+                "updated": updated_count,
                 "errors": [
                     err.message for err in pipeline_response.errors
                 ] + persist_errors,
+                "error_count": len(pipeline_response.errors) + len(persist_errors),
                 "status": pipeline_response.status.value,
                 "duration_seconds": duration,
             }
@@ -188,7 +215,10 @@ class BillIntegrationService:
             duration = (datetime.utcnow() - start_time).total_seconds()
             
             try:
-                async with db.session() as session_db:
+                # Use the database instance from __init__ if provided, otherwise use global
+                database_to_use = self.database if self.database else db
+                
+                async with database_to_use.session() as session_db:
                     await self._log_fetch_operation(
                         session_db=session_db,
                         source="bill_integration_service",
