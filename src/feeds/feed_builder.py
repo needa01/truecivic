@@ -217,6 +217,42 @@ class GuidBuilder:
             parts.append(date.strftime('%Y-%m-%d'))
         
         return ':'.join(parts)
+    
+    # Convenience methods for specific entity types
+    @staticmethod
+    def for_bill_sponsored(mp_id: int, bill_id: int) -> str:
+        """GUID for bill sponsorship by MP"""
+        return GuidBuilder.build("ca", "mp", mp_id, f"sponsored-{bill_id}")
+    
+    @staticmethod
+    def for_mp_vote(mp_id: int, vote_id: int) -> str:
+        """GUID for MP vote record"""
+        return GuidBuilder.build("ca", "mp", mp_id, f"vote-{vote_id}")
+    
+    @staticmethod
+    def for_mp_speech(mp_id: int, speech_id: int) -> str:
+        """GUID for MP speech"""
+        return GuidBuilder.build("ca", "mp", mp_id, f"speech-{speech_id}")
+    
+    @staticmethod
+    def for_committee_meeting(committee_id: int, meeting_id: int) -> str:
+        """GUID for committee meeting"""
+        return GuidBuilder.build("ca", "committee", committee_id, f"meeting-{meeting_id}")
+    
+    @staticmethod
+    def for_committee_report(committee_id: int, report_id: int) -> str:
+        """GUID for committee report"""
+        return GuidBuilder.build("ca", "committee", committee_id, f"report-{report_id}")
+    
+    @staticmethod
+    def for_bill_event(bill_id: int, event: str) -> str:
+        """GUID for bill event"""
+        return GuidBuilder.build("ca", "bill", bill_id, event)
+    
+    @staticmethod
+    def for_bill_vote(bill_id: int, vote_id: int) -> str:
+        """GUID for vote on bill"""
+        return GuidBuilder.build("ca", "bill", bill_id, f"vote-{vote_id}")
 
 
 class FeedCache:

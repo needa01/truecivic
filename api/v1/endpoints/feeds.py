@@ -333,3 +333,228 @@ async def clear_feed_cache() -> dict:
         "message": "Feed cache cleared",
         "timestamp": datetime.utcnow().isoformat()
     }
+
+
+# ============================================================================
+# MP Activity Feeds
+# ============================================================================
+
+@router.get(
+    "/mp/{mp_id}.xml",
+    summary="MP Activity Feed",
+    description="RSS feed for individual MP activity (bills sponsored, votes, speeches)"
+)
+async def get_mp_activity_feed(
+    mp_id: int = Path(..., description="Politician ID"),
+    db_session: AsyncSession = Depends(get_db_session)
+) -> FastAPIResponse:
+    """
+    Get RSS feed for MP activity.
+    
+    Includes:
+    - Bills sponsored
+    - Votes cast
+    - Speeches given
+    
+    Args:
+        mp_id: Politician ID
+        db_session: Database session
+        
+    Returns:
+        RSS feed XML
+    """
+    from src.feeds.politician_feeds import MPActivityFeedBuilder
+    from src.db.models import PoliticianModel
+    from sqlalchemy import select
+    
+    # Check cache
+    cache_key = f"mp_{mp_id}_activity"
+    cached = feed_cache.get(cache_key)
+    if cached:
+        return FastAPIResponse(
+            content=cached,
+            media_type="application/rss+xml",
+            headers={"X-Cache": "HIT"}
+        )
+    
+    # Get MP details
+    mp_query = select(PoliticianModel).where(PoliticianModel.id == mp_id)
+    mp_result = await db_session.execute(mp_query)
+    mp = mp_result.scalar_one_or_none()
+    
+    if not mp:
+        return FastAPIResponse(
+            content="<error>MP not found</error>",
+            status_code=404,
+            media_type="application/xml"
+        )
+    
+    # Build feed
+    feed_url = f"/api/v1/ca/feeds/mp/{mp_id}.xml"
+    builder = MPActivityFeedBuilder(
+        mp_id=mp_id,
+        mp_name=mp.name,
+        feed_url=feed_url
+    )
+    
+    xml = await builder.build_from_db(db_session, limit=50)
+    
+    # Cache for 5 minutes
+    feed_cache.set(cache_key, xml)
+    
+    return FastAPIResponse(
+        content=xml,
+        media_type="application/rss+xml",
+        headers={"X-Cache": "MISS"}
+    )
+
+
+# ============================================================================
+# Committee Feeds
+# ============================================================================
+
+@router.get(
+    "/committee/{committee_id}.xml",
+    summary="Committee Activity Feed",
+    description="RSS feed for committee meetings and reports"
+)
+async def get_committee_feed(
+    committee_id: int = Path(..., description="Committee ID"),
+    db_session: AsyncSession = Depends(get_db_session)
+) -> FastAPIResponse:
+    """
+    Get RSS feed for committee activity.
+    
+    Includes:
+    - Committee meetings
+    - Reports published
+    
+    Note: Currently returns empty feed until Phase D committee adapters are complete.
+    
+    Args:
+        committee_id: Committee ID
+        db_session: Database session
+        
+    Returns:
+        RSS feed XML
+    """
+    from src.feeds.committee_feeds import CommitteeFeedBuilder
+    from src.db.models import CommitteeModel
+    from sqlalchemy import select
+    
+    # Check cache
+    cache_key = f"committee_{committee_id}"
+    cached = feed_cache.get(cache_key)
+    if cached:
+        return FastAPIResponse(
+            content=cached,
+            media_type="application/rss+xml",
+            headers={"X-Cache": "HIT"}
+        )
+    
+    # Get committee details
+    committee_query = select(CommitteeModel).where(CommitteeModel.id == committee_id)
+    committee_result = await db_session.execute(committee_query)
+    committee = committee_result.scalar_one_or_none()
+    
+    if not committee:
+        return FastAPIResponse(
+            content="<error>Committee not found</error>",
+            status_code=404,
+            media_type="application/xml"
+        )
+    
+    # Build feed
+    feed_url = f"/api/v1/ca/feeds/committee/{committee_id}.xml"
+    builder = CommitteeFeedBuilder(
+        committee_id=committee_id,
+        committee_name=committee.name_en or committee.name_fr or f"Committee {committee_id}",
+        feed_url=feed_url
+    )
+    
+    xml = await builder.build_from_db(db_session, limit=50)
+    
+    # Cache for 5 minutes
+    feed_cache.set(cache_key, xml)
+    
+    return FastAPIResponse(
+        content=xml,
+        media_type="application/rss+xml",
+        headers={"X-Cache": "MISS"}
+    )
+
+
+# ============================================================================
+# Single Bill Timeline Feeds
+# ============================================================================
+
+@router.get(
+    "/bill/{bill_id}.xml",
+    summary="Bill Timeline Feed",
+    description="RSS feed for single bill timeline (votes, speeches, committee referrals)"
+)
+async def get_bill_timeline_feed(
+    bill_id: int = Path(..., description="Bill ID"),
+    db_session: AsyncSession = Depends(get_db_session)
+) -> FastAPIResponse:
+    """
+    Get RSS feed for bill timeline.
+    
+    Includes:
+    - Bill introduction
+    - Votes on bill
+    - Committee referrals
+    - Royal assent
+    
+    Args:
+        bill_id: Bill ID
+        db_session: Database session
+        
+    Returns:
+        RSS feed XML
+    """
+    from src.feeds.committee_feeds import BillTimelineFeedBuilder
+    from src.db.models import BillModel
+    from sqlalchemy import select
+    
+    # Check cache
+    cache_key = f"bill_timeline_{bill_id}"
+    cached = feed_cache.get(cache_key)
+    if cached:
+        return FastAPIResponse(
+            content=cached,
+            media_type="application/rss+xml",
+            headers={"X-Cache": "HIT"}
+        )
+    
+    # Get bill details
+    bill_query = select(BillModel).where(BillModel.id == bill_id)
+    bill_result = await db_session.execute(bill_query)
+    bill = bill_result.scalar_one_or_none()
+    
+    if not bill:
+        return FastAPIResponse(
+            content="<error>Bill not found</error>",
+            status_code=404,
+            media_type="application/xml"
+        )
+    
+    # Build feed
+    feed_url = f"/api/v1/ca/feeds/bill/{bill_id}.xml"
+    builder = BillTimelineFeedBuilder(
+        bill_id=bill_id,
+        bill_number=bill.number,
+        bill_title=bill.title_en or bill.title_fr or "Untitled",
+        feed_url=feed_url
+    )
+    
+    xml = await builder.build_from_db(db_session)
+    
+    # Cache for 5 minutes
+    feed_cache.set(cache_key, xml)
+    
+    return FastAPIResponse(
+        content=xml,
+        media_type="application/rss+xml",
+        headers={"X-Cache": "MISS"}
+    )

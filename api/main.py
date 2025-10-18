@@ -6,13 +6,24 @@ Provides RESTful endpoints for bills, politicians, votes, and debates.
 Responsibility: Main API application setup and configuration
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import logging
 
 from src.config import settings
 from api.middleware import RateLimiterMiddleware
+from src.db.session import get_db
+
+# GraphQL imports (only if strawberry is installed)
+try:
+    from strawberry.fastapi import GraphQLRouter
+    from api.graphql import schema
+    GRAPHQL_AVAILABLE = True
+except ImportError:
+    GRAPHQL_AVAILABLE = False
+    logger = logging.getLogger(__name__)
+    logger.warning("Strawberry GraphQL not installed. GraphQL endpoint will not be available.")
 
 # Configure logging
 logging.basicConfig(
@@ -70,22 +81,27 @@ async def shutdown_event():
 @app.get("/")
 async def root():
     """Root endpoint - API information."""
+    endpoints_dict = {
+        "bills": "/api/v1/ca/bills",
+        "politicians": "/api/v1/ca/politicians",
+        "votes": "/api/v1/ca/votes",
+        "debates": "/api/v1/ca/debates",
+        "committees": "/api/v1/ca/committees",
+        "feeds": "/api/v1/ca/feeds",
+        "search": "/api/v1/ca/search",
+        "graph": "/api/v1/ca/graph",
+        "preferences": "/api/v1/ca/preferences",
+        "docs": "/docs"
+    }
+    
+    if GRAPHQL_AVAILABLE:
+        endpoints_dict["graphql"] = "/graphql"
+    
     return {
         "name": "Parliament Explorer API",
         "version": "1.0.0",
         "status": "operational",
-        "endpoints": {
-            "bills": "/api/v1/ca/bills",
-            "politicians": "/api/v1/ca/politicians",
-            "votes": "/api/v1/ca/votes",
-            "debates": "/api/v1/ca/debates",
-            "committees": "/api/v1/ca/committees",
-            "feeds": "/api/v1/ca/feeds",
-            "search": "/api/v1/ca/search",
-            "graph": "/api/v1/ca/graph",
-            "preferences": "/api/v1/ca/preferences",
-            "docs": "/docs"
-        }
+        "endpoints": endpoints_dict
     }
 
 
@@ -168,6 +184,22 @@ app.include_router(
     prefix="/api/v1/ca",
     tags=["preferences"]
 )
+
+# Mount GraphQL endpoint (if available)
+if GRAPHQL_AVAILABLE:
+    
+    async def get_context(request: Request):
+        """Context for GraphQL requests"""
+        db = await anext(get_db())
+        return {"request": request, "db": db}
+    
+    graphql_app = GraphQLRouter(
+        schema,
+        context_getter=get_context,
+        graphiql=settings.app.debug  # Only enable GraphiQL in debug mode
+    )
+    app.include_router(graphql_app, prefix="/graphql")
+    logger.info("GraphQL endpoint mounted at /graphql")
 
 
 if __name__ == "__main__":
