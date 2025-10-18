@@ -360,9 +360,11 @@
    - No unit tests for repositories
    - No integration tests for API endpoints
    - No ETL flow tests
-   - Test files exist but not maintained: `test_pipeline.py`, `test_database.py`, `test_integration.py`
+   - Legacy manual scripts relocated to `scripts/manual/` (pipeline_quickstart.py,
+       database_layer_smoke_test.py, integration_service_smoke_test.py,
+       pipeline_async_debug.py)
    - **Risk**: CRITICAL - No confidence in code correctness
-   - **Action Required**: 
+   - **Action Required**:
      1. Create `tests/unit/` with repository tests
      2. Create `tests/integration/` with API tests
      3. Create `tests/flows/` with ETL tests
