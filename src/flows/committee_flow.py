@@ -5,7 +5,7 @@ Orchestrates the committee adapter to fetch parliamentary committee information.
 """
 import asyncio
 from datetime import datetime
-from typing import List
+from typing import List, Dict, Any
 import logging
 
 from prefect import flow, task, get_run_logger
@@ -14,8 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.committee_adapter import CommitteeAdapter
 from src.db.session import async_session_factory
-from src.db.models import CommitteeModel
+from src.db.repositories.committee_repository import CommitteeRepository
 from src.models.adapter_models import CommitteeData
+from src.utils.committee_registry import build_committee_identifier, resolve_source_slug
 
 logger = logging.getLogger(__name__)
 
@@ -79,53 +80,56 @@ async def store_committees_task(committees: List[CommitteeData]) -> int:
     logger.info(f"Storing {len(committees)} committees in database")
     
     stored_count = 0
-    
+
+    if not committees:
+        logger.info("No committee records received")
+        return 0
+
     async with async_session_factory() as session:
+        repository = CommitteeRepository(session)
+        payloads: List[Dict[str, Any]] = []
+
         for committee_data in committees:
             try:
-                # Check if committee already exists
-                existing = await session.get(CommitteeModel, (committee_data.committee_id, "ca-federal"))
-                
-                if existing:
-                    # Update existing committee
-                    existing.parliament = committee_data.parliament
-                    existing.session = committee_data.session
-                    existing.committee_slug = committee_data.committee_slug
-                    existing.acronym_en = committee_data.acronym_en
-                    existing.acronym_fr = committee_data.acronym_fr
-                    existing.name_en = committee_data.name_en
-                    existing.name_fr = committee_data.name_fr
-                    existing.short_name_en = committee_data.short_name_en
-                    existing.short_name_fr = committee_data.short_name_fr
-                    existing.chamber = committee_data.chamber
-                    existing.parent_committee = committee_data.parent_committee
-                    existing.updated_at = datetime.utcnow()
-                else:
-                    # Create new committee
-                    committee_model = CommitteeModel(
-                        natural_id=committee_data.committee_id,
-                        jurisdiction="ca-federal",
-                        parliament=committee_data.parliament,
-                        session=committee_data.session,
-                        committee_slug=committee_data.committee_slug,
-                        acronym_en=committee_data.acronym_en,
-                        acronym_fr=committee_data.acronym_fr,
-                        name_en=committee_data.name_en,
-                        name_fr=committee_data.name_fr,
-                        short_name_en=committee_data.short_name_en,
-                        short_name_fr=committee_data.short_name_fr,
-                        chamber=committee_data.chamber,
-                        parent_committee=committee_data.parent_committee
-                    )
-                    session.add(committee_model)
-                
-                stored_count += 1
-                
-            except Exception as e:
-                logger.error(f"Error storing committee {committee_data.committee_id}: {e}")
-        
+                identifier_seed = (
+                    committee_data.committee_slug
+                    or committee_data.acronym_en
+                    or committee_data.acronym_fr
+                    or committee_data.committee_id
+                )
+                identifier = build_committee_identifier(identifier_seed)
+
+                name_en = committee_data.name_en or identifier.code
+                source_slug = committee_data.source_slug or identifier.source_slug
+
+                payloads.append(
+                    {
+                        "jurisdiction": "ca",
+                        "committee_code": identifier.code,
+                        "committee_slug": identifier.internal_slug,
+                        "source_slug": source_slug,
+                        "name_en": name_en,
+                        "name_fr": committee_data.name_fr,
+                        "chamber": committee_data.chamber or "House",
+                        "committee_type": None,
+                        "website_url": None,
+                    }
+                )
+            except Exception as exc:
+                logger.error(
+                    "Failed to prepare committee payload %s: %s",
+                    committee_data.committee_id,
+                    exc,
+                )
+
+        if not payloads:
+            logger.warning("All committee payloads failed validation; nothing stored")
+            return 0
+
+        stored_committees = await repository.upsert_many(payloads)
         await session.commit()
-    
+        stored_count = len(stored_committees)
+
     logger.info(f"Stored {stored_count} committees")
     return stored_count
 
