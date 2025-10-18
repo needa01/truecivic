@@ -73,6 +73,7 @@ class FeedBuilder:
         self.fg.link(href=link or feed_url, rel='alternate')
         self.fg.link(href=feed_url, rel='self')
         self.fg.language(language)
+        self.fg.id(feed_url)
         
         # Author info
         self.fg.author({'name': author_name, 'email': author_email})
@@ -313,6 +314,11 @@ class FeedCache:
     def size(self) -> int:
         """Get number of cached feeds"""
         return len(self._cache)
+
+    @property
+    def ttl(self) -> int:
+        """Expose cache TTL in seconds."""
+        return self._ttl
 
 
 # Global cache instance
