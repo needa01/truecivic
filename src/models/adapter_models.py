@@ -115,3 +115,79 @@ class AdapterResponse(BaseModel, Generic[T]):
         json_encoders = {
             datetime: lambda v: v.isoformat(),
         }
+
+
+# Data transfer objects for specific entity types
+
+from dataclasses import dataclass, field
+
+
+@dataclass
+class VoteRecordData:
+    """Individual MP vote record."""
+    politician_id: int
+    vote_position: str  # "Yea", "Nay", "Paired"
+
+
+@dataclass
+class VoteData:
+    """Parliamentary vote data."""
+    vote_id: str
+    parliament: int
+    session: int
+    vote_number: int
+    chamber: str
+    vote_date: Optional[datetime]
+    vote_description_en: Optional[str]
+    vote_description_fr: Optional[str]
+    bill_number: Optional[str]
+    result: str
+    yeas: int
+    nays: int
+    abstentions: int
+    vote_records: List['VoteRecordData'] = field(default_factory=list)
+
+
+@dataclass
+class SpeechData:
+    """Individual speech in a debate."""
+    speech_id: str
+    politician_id: Optional[int]
+    content_en: Optional[str]
+    content_fr: Optional[str]
+    speech_time: Optional[datetime]
+    speaker_name: Optional[str]
+    speaker_role: Optional[str]
+    sequence: int = 0
+
+
+@dataclass
+class DebateData:
+    """Parliamentary debate/Hansard data."""
+    debate_id: str
+    parliament: int
+    session: int
+    debate_number: str
+    chamber: str
+    debate_date: Optional[datetime]
+    topic_en: Optional[str]
+    topic_fr: Optional[str]
+    debate_type: str
+    speeches: List['SpeechData'] = field(default_factory=list)
+
+
+@dataclass
+class CommitteeData:
+    """Parliamentary committee data."""
+    committee_id: str
+    parliament: int
+    session: int
+    committee_slug: str
+    acronym_en: Optional[str]
+    acronym_fr: Optional[str]
+    name_en: Optional[str]
+    name_fr: Optional[str]
+    short_name_en: Optional[str]
+    short_name_fr: Optional[str]
+    chamber: str
+    parent_committee: Optional[str] = None
