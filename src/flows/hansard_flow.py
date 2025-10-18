@@ -10,12 +10,13 @@ import logging
 
 from prefect import flow, task, get_run_logger
 from prefect.task_runners import ConcurrentTaskRunner
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.adapters.hansard_adapter import HansardAdapter
 from src.db.session import async_session_factory
 from src.db.models import DebateModel, SpeechModel
-from src.models.adapter_models import DebateData
+from src.models.adapter_models import DebateData, SpeechData
 
 logger = logging.getLogger(__name__)
 
@@ -82,81 +83,119 @@ async def store_debates_task(debates: List[DebateData]) -> int:
     async with async_session_factory() as session:
         for debate_data in debates:
             try:
-                # Check if debate already exists
-                existing = await session.get(DebateModel, (debate_data.debate_id, "ca-federal"))
-                
-                if existing:
-                    # Update existing debate
-                    existing.parliament = debate_data.parliament
-                    existing.session = debate_data.session
-                    existing.debate_number = debate_data.debate_number
-                    existing.chamber = debate_data.chamber
-                    existing.debate_date = debate_data.debate_date
-                    existing.topic_en = debate_data.topic_en
-                    existing.topic_fr = debate_data.topic_fr
-                    existing.debate_type = debate_data.debate_type
-                    existing.updated_at = datetime.utcnow()
-                    
-                    debate_model = existing
+                existing_stmt = select(DebateModel).where(
+                    DebateModel.jurisdiction == "ca-federal",
+                    DebateModel.hansard_id == debate_data.debate_id,
+                )
+                result = await session.execute(existing_stmt)
+                debate_model = result.scalar_one_or_none()
+
+                sitting_date = debate_data.debate_date or datetime.utcnow()
+                chamber = debate_data.chamber or "House"
+
+                if debate_model:
+                    debate_model.parliament = debate_data.parliament
+                    debate_model.session = debate_data.session
+                    debate_model.sitting_date = sitting_date
+                    debate_model.chamber = chamber
+                    debate_model.debate_type = debate_data.debate_type
+                    debate_model.document_url = getattr(debate_data, "document_url", None)
+                    debate_model.updated_at = datetime.utcnow()
                 else:
-                    # Create new debate
                     debate_model = DebateModel(
-                        natural_id=debate_data.debate_id,
                         jurisdiction="ca-federal",
+                        hansard_id=debate_data.debate_id,
                         parliament=debate_data.parliament,
                         session=debate_data.session,
-                        debate_number=debate_data.debate_number,
-                        chamber=debate_data.chamber,
-                        debate_date=debate_data.debate_date,
-                        topic_en=debate_data.topic_en,
-                        topic_fr=debate_data.topic_fr,
-                        debate_type=debate_data.debate_type
+                        sitting_date=sitting_date,
+                        chamber=chamber,
+                        debate_type=debate_data.debate_type,
+                        document_url=getattr(debate_data, "document_url", None),
                     )
                     session.add(debate_model)
-                
-                # Store speeches if present
+                    await session.flush()
+
                 if debate_data.speeches:
-                    for speech_data in debate_data.speeches:
-                        # Check if speech exists
-                        speech_natural_id = f"{debate_data.debate_id}-speech-{speech_data.speech_id}"
-                        existing_speech = await session.get(SpeechModel, (speech_natural_id, "ca-federal"))
-                        
-                        if existing_speech:
-                            # Update existing speech
-                            existing_speech.politician_id = speech_data.politician_id
-                            existing_speech.content_en = speech_data.content_en
-                            existing_speech.content_fr = speech_data.content_fr
-                            existing_speech.speech_time = speech_data.speech_time
-                            existing_speech.speaker_name = speech_data.speaker_name
-                            existing_speech.speaker_role = speech_data.speaker_role
-                            existing_speech.sequence = speech_data.sequence
-                            existing_speech.updated_at = datetime.utcnow()
-                        else:
-                            # Create new speech
-                            speech_model = SpeechModel(
-                                natural_id=speech_natural_id,
-                                jurisdiction="ca-federal",
-                                debate_id=debate_data.debate_id,
-                                politician_id=speech_data.politician_id,
-                                content_en=speech_data.content_en,
-                                content_fr=speech_data.content_fr,
-                                speech_time=speech_data.speech_time,
-                                speaker_name=speech_data.speaker_name,
-                                speaker_role=speech_data.speaker_role,
-                                sequence=speech_data.sequence
-                            )
-                            session.add(speech_model)
-                
+                    await _sync_speeches(session, debate_model.id, debate_data.speeches)
+
                 stored_count += 1
-                
-            except Exception as e:
-                logger.error(f"Error storing debate {debate_data.debate_id}: {e}")
-        
+
+            except Exception as exc:
+                logger.error("Error storing debate %s: %s", debate_data.debate_id, exc)
+
         await session.commit()
     
     logger.info(f"Stored {stored_count} debates")
     return stored_count
 
+
+async def _sync_speeches(
+    session: AsyncSession,
+    debate_db_id: int,
+    speeches: List[SpeechData],
+) -> None:
+    """Upsert speeches for a debate while pruning removed entries."""
+
+    if not speeches:
+        return
+
+    existing_result = await session.execute(
+        select(SpeechModel).where(SpeechModel.debate_id == debate_db_id)
+    )
+    existing_by_sequence = {
+        speech.sequence: speech for speech in existing_result.scalars()
+    }
+
+    processed_sequences = set()
+
+    for speech_data in speeches:
+        sequence = speech_data.sequence or 0
+        if sequence <= 0:
+            continue
+
+        text_content = speech_data.content_en or speech_data.content_fr
+        if not text_content:
+            continue
+
+        language = None
+        if speech_data.content_en and not speech_data.content_fr:
+            language = "en"
+        elif speech_data.content_fr and not speech_data.content_en:
+            language = "fr"
+
+        timestamp = (
+            speech_data.speech_time.isoformat()
+            if isinstance(speech_data.speech_time, datetime)
+            else None
+        )
+
+        existing_speech = existing_by_sequence.get(sequence)
+        if existing_speech:
+            existing_speech.politician_id = speech_data.politician_id
+            existing_speech.speaker_name = speech_data.speaker_name or existing_speech.speaker_name
+            existing_speech.language = language
+            existing_speech.text_content = text_content
+            existing_speech.timestamp_start = timestamp
+        else:
+            session.add(
+                SpeechModel(
+                    debate_id=debate_db_id,
+                    politician_id=speech_data.politician_id,
+                    speaker_name=speech_data.speaker_name or "Unknown speaker",
+                    sequence=sequence,
+                    language=language,
+                    text_content=text_content,
+                    timestamp_start=timestamp,
+                    timestamp_end=None,
+                )
+            )
+
+        processed_sequences.add(sequence)
+
+    # Remove speeches no longer present
+    for sequence, existing_speech in existing_by_sequence.items():
+        if sequence not in processed_sequences:
+            await session.delete(existing_speech)
 
 @flow(
     name="fetch_debates",
