@@ -1,297 +1,266 @@
 """
-Adapter for fetching debate/Hansard data from OpenParliament API.
+OpenParliament API adapter for debates and speeches.
 
-Fetches parliamentary debates and individual speeches.
-
-Responsibility: Fetch debate/Hansard data from OpenParliament API
+Responsibility: Fetch debate sessions and speech transcripts from the public
+OpenParliament API and expose them via the BaseAdapter contract.
 """
 
-import logging
-from typing import Optional, Dict, List, Any
+from __future__ import annotations
+
 from datetime import datetime
-import aiohttp
+from typing import Any, Dict, List, Optional
 
-from src.adapters.base_adapter import BaseAdapter
-from src.models.adapter_models import AdapterResponse
+import httpx
 
-logger = logging.getLogger(__name__)
+from .base_adapter import BaseAdapter
+from ..models.adapter_models import AdapterError, AdapterResponse
 
 
-class OpenParliamentDebatesAdapter(BaseAdapter):
-    """
-    Adapter for fetching debate/Hansard data from OpenParliament API.
-    
-    Endpoints:
-    - /debates/ - List debate sessions
-    - /speeches/ - List speeches across debates
-    """
-    
+class OpenParliamentDebatesAdapter(BaseAdapter[Dict[str, Any]]):
+    """Adapter for OpenParliament debate endpoints."""
+
     BASE_URL = "https://api.openparliament.ca"
-    
-    def __init__(self, session: Optional[aiohttp.ClientSession] = None):
-        """
-        Initialize the OpenParliament debates adapter.
-        
-        Args:
-            session: Optional aiohttp session for connection pooling
-        """
-        super().__init__(session)
-        self.source_name = "openparliament_debates"
-    
-    async def fetch_debates(
+
+    def __init__(self) -> None:
+        super().__init__(
+            source_name="openparliament_debates",
+            rate_limit_per_second=1.0,
+            max_retries=3,
+            timeout_seconds=30,
+        )
+        self.client = httpx.AsyncClient(
+            timeout=self.timeout_seconds,
+            headers={
+                "User-Agent": "ParliamentExplorer/1.0 (production)",
+                "Accept": "application/json",
+            },
+            follow_redirects=True,
+        )
+
+    async def fetch(
         self,
         limit: int = 50,
         offset: int = 0,
+        parliament: Optional[int] = None,
         session: Optional[int] = None,
-        parliament: Optional[int] = None
-    ) -> AdapterResponse:
-        """
-        Fetch debate sessions from OpenParliament API.
-        
-        Args:
-            limit: Maximum number of debates to fetch
-            offset: Offset for pagination
-            session: Filter by session number
-            parliament: Filter by parliament number
-            
-        Returns:
-            AdapterResponse with debate records
-        """
+        **_: Any,
+    ) -> AdapterResponse[Dict[str, Any]]:
+        """Fetch debate sessions."""
+        start_time = datetime.utcnow()
+        records: List[Dict[str, Any]] = []
+        errors: List[AdapterError] = []
+
         url = f"{self.BASE_URL}/debates/"
         params: Dict[str, Any] = {
             "format": "json",
-            "limit": limit,
-            "offset": offset
+            "limit": min(limit, 100),
+            "offset": offset,
         }
-        
-        if session:
-            params["session"] = session
         if parliament:
             params["parliament"] = parliament
-        
-        logger.info(
-            f"Fetching debates: limit={limit}, offset={offset}, "
-            f"session={session}, parliament={parliament}"
-        )
-        
+        if session:
+            params["session"] = session
+
+        fetched = 0
+
         try:
-            data = await self._fetch_json(url, params)
-            
-            if not data or "objects" not in data:
-                logger.warning(f"No debate data returned from {url}")
-                return AdapterResponse(
-                    source=self.source_name,
-                    records=[],
-                    total_fetched=0,
-                    fetch_params=params
-                )
-            
-            debates = data["objects"]
-            logger.info(f"Fetched {len(debates)} debates")
-            
-            # Transform to standard format
-            transformed = [self._transform_debate(d) for d in debates]
-            
-            return AdapterResponse(
-                source=self.source_name,
-                records=transformed,
-                total_fetched=len(transformed),
-                fetch_params=params
-            )
-            
-        except Exception as e:
-            logger.error(f"Error fetching debates: {str(e)}", exc_info=True)
-            return AdapterResponse(
-                source=self.source_name,
-                records=[],
-                total_fetched=0,
-                fetch_params=params,
-                errors=[{
-                    "error": str(e),
-                    "context": "fetch_debates"
-                }]
-            )
-    
-    async def fetch_speeches(
+            while url and fetched < limit:
+                await self.rate_limiter.acquire()
+                response = await self.client.get(url, params=params if params else None)
+                response.raise_for_status()
+
+                payload = response.json()
+                objects = payload.get("objects", [])
+
+                for raw in objects:
+                    if fetched >= limit:
+                        break
+                    try:
+                        records.append(self.normalize(raw))
+                        fetched += 1
+                    except Exception as exc:  # pragma: no cover
+                        errors.append(
+                            AdapterError(
+                                timestamp=datetime.utcnow(),
+                                error_type=type(exc).__name__,
+                                message=str(exc),
+                                context={"adapter": self.source_name, "payload": raw},
+                                retryable=False,
+                            )
+                        )
+
+                next_url = payload.get("pagination", {}).get("next_url")
+                if next_url and fetched < limit:
+                    url = (
+                        f"{self.BASE_URL}{next_url}"
+                        if next_url.startswith("/")
+                        else next_url
+                    )
+                    params = None
+                else:
+                    url = None
+
+            return self._build_success_response(records, errors, start_time)
+
+        except httpx.HTTPError as exc:
+            return self._build_failure_response(exc, start_time, retryable=True)
+        except Exception as exc:  # pragma: no cover
+            return self._build_failure_response(exc, start_time, retryable=False)
+
+    async def fetch_speeches_for_debate(
         self,
-        limit: int = 100,
-        offset: int = 0,
-        debate_id: Optional[str] = None,
-        politician_id: Optional[int] = None,
-        date: Optional[str] = None
-    ) -> AdapterResponse:
-        """
-        Fetch speeches from OpenParliament API.
-        
-        Args:
-            limit: Maximum number of speeches to fetch
-            offset: Offset for pagination
-            debate_id: Filter by specific debate
-            politician_id: Filter by politician
-            date: Filter by date (YYYY-MM-DD)
-            
-        Returns:
-            AdapterResponse with speech records
-        """
-        url = f"{self.BASE_URL}/speeches/"
-        params: Dict[str, Any] = {
-            "format": "json",
-            "limit": limit,
-            "offset": offset
-        }
-        
-        if debate_id:
-            params["debate"] = debate_id
-        if politician_id:
-            params["politician"] = politician_id
-        if date:
-            params["date"] = date
-        
-        logger.info(
-            f"Fetching speeches: limit={limit}, offset={offset}, "
-            f"debate={debate_id}, politician={politician_id}, date={date}"
-        )
-        
+        debate_id: str,
+        limit: int = 500,
+    ) -> AdapterResponse[Dict[str, Any]]:
+        """Fetch speeches for a specific debate."""
+        start_time = datetime.utcnow()
+        records: List[Dict[str, Any]] = []
+
+        url = f"{self.BASE_URL}/debates/{debate_id}/speeches/"
+        params: Dict[str, Any] = {"format": "json", "limit": min(limit, 100)}
+
+        fetched = 0
+
         try:
-            data = await self._fetch_json(url, params)
-            
-            if not data or "objects" not in data:
-                logger.warning(f"No speech data returned from {url}")
-                return AdapterResponse(
-                    source=self.source_name,
-                    records=[],
-                    total_fetched=0,
-                    fetch_params=params
-                )
-            
-            speeches = data["objects"]
-            logger.info(f"Fetched {len(speeches)} speeches")
-            
-            # Transform to standard format
-            transformed = [self._transform_speech(s) for s in speeches]
-            
-            return AdapterResponse(
-                source=self.source_name,
-                records=transformed,
-                total_fetched=len(transformed),
-                fetch_params=params
-            )
-            
-        except Exception as e:
-            logger.error(f"Error fetching speeches: {str(e)}", exc_info=True)
-            return AdapterResponse(
-                source=self.source_name,
-                records=[],
-                total_fetched=0,
-                fetch_params=params,
-                errors=[{
-                    "error": str(e),
-                    "context": "fetch_speeches"
-                }]
-            )
-    
-    async def fetch_speeches_for_debate(self, debate_id: str) -> AdapterResponse:
-        """
-        Fetch all speeches for a specific debate session.
-        
-        Args:
-            debate_id: Debate identifier
-            
-        Returns:
-            AdapterResponse with speech records
-        """
-        return await self.fetch_speeches(
-            limit=1000,  # Large limit for single debate
-            debate_id=debate_id
-        )
-    
+            while url and fetched < limit:
+                await self.rate_limiter.acquire()
+                response = await self.client.get(url, params=params if params else None)
+                response.raise_for_status()
+
+                payload = response.json()
+                speeches = payload.get("objects", [])
+
+                for raw in speeches:
+                    if fetched >= limit:
+                        break
+                    records.append(self._normalize_speech(raw))
+                    fetched += 1
+
+                next_url = payload.get("pagination", {}).get("next_url")
+                if next_url and fetched < limit:
+                    url = (
+                        f"{self.BASE_URL}{next_url}"
+                        if next_url.startswith("/")
+                        else next_url
+                    )
+                    params = None
+                else:
+                    url = None
+
+            return self._build_success_response(records, [], start_time)
+
+        except httpx.HTTPError as exc:
+            return self._build_failure_response(exc, start_time, retryable=True)
+        except Exception as exc:  # pragma: no cover
+            return self._build_failure_response(exc, start_time, retryable=False)
+
     async def fetch_speeches_for_politician(
         self,
         politician_id: int,
-        limit: int = 100
-    ) -> AdapterResponse:
-        """
-        Fetch recent speeches by a specific politician.
-        
-        Args:
-            politician_id: Politician ID
-            limit: Maximum speeches to fetch
-            
-        Returns:
-            AdapterResponse with speech records
-        """
-        return await self.fetch_speeches(
-            limit=limit,
-            politician_id=politician_id
-        )
-    
-    def _transform_debate(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Transform raw OpenParliament debate data.
-        
-        Args:
-            raw_data: Raw debate data from API
-            
-        Returns:
-            Standardized debate dictionary
-        """
-        # Extract session info from URL or id
-        debate_url = raw_data.get("url", "")
-        hansard_id = raw_data.get("id", debate_url.split("/")[-2] if "/" in debate_url else None)
-        
-        # Parse parliament/session from structure like "2024-03-21"
-        parliament = raw_data.get("parliament")
-        session = raw_data.get("session")
-        
+        limit: int = 500,
+    ) -> AdapterResponse[Dict[str, Any]]:
+        """Fetch speeches delivered by a specific politician."""
+        start_time = datetime.utcnow()
+        records: List[Dict[str, Any]] = []
+
+        url = f"{self.BASE_URL}/speeches/"
+        params: Dict[str, Any] = {
+            "format": "json",
+            "limit": min(limit, 100),
+            "politician": politician_id,
+        }
+
+        fetched = 0
+
+        try:
+            while url and fetched < limit:
+                await self.rate_limiter.acquire()
+                response = await self.client.get(url, params=params if params else None)
+                response.raise_for_status()
+
+                payload = response.json()
+                speeches = payload.get("objects", [])
+
+                for raw in speeches:
+                    if fetched >= limit:
+                        break
+                    records.append(self._normalize_speech(raw))
+                    fetched += 1
+
+                next_url = payload.get("pagination", {}).get("next_url")
+                if next_url and fetched < limit:
+                    url = (
+                        f"{self.BASE_URL}{next_url}"
+                        if next_url.startswith("/")
+                        else next_url
+                    )
+                    params = None
+                else:
+                    url = None
+
+            return self._build_success_response(records, [], start_time)
+
+        except httpx.HTTPError as exc:
+            return self._build_failure_response(exc, start_time, retryable=True)
+        except Exception as exc:  # pragma: no cover
+            return self._build_failure_response(exc, start_time, retryable=False)
+
+    def normalize(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize debate session payload."""
+        session = raw_data.get("session") or {}
+        sitting = raw_data.get("sitting") or {}
+
         return {
-            "hansard_id": hansard_id,
-            "parliament": parliament,
-            "session": session,
+            "hansard_id": raw_data.get("hansard_id") or raw_data.get("id"),
+            "title_en": raw_data.get("title", {}).get("en")
+            if isinstance(raw_data.get("title"), dict)
+            else raw_data.get("title"),
+            "title_fr": raw_data.get("title", {}).get("fr")
+            if isinstance(raw_data.get("title"), dict)
+            else None,
+            "parliament": session.get("parliament"),
+            "session": session.get("session"),
+            "sitting_number": sitting.get("number"),
             "sitting_date": raw_data.get("date"),
-            "chamber": raw_data.get("h1", {}).get("en", "House"),  # h1 contains chamber name
-            "debate_type": raw_data.get("h2", {}).get("en"),  # h2 contains debate type
-            "document_url": raw_data.get("url"),
-            "source": "openparliament",
-            "fetched_at": datetime.utcnow().isoformat()
-        }
-    
-    def _transform_speech(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Transform raw OpenParliament speech data.
-        
-        Args:
-            raw_data: Raw speech data from API
-            
-        Returns:
-            Standardized speech dictionary
-        """
-        politician = raw_data.get("politician", {})
-        
-        # Extract sequence from URL or h3
-        sequence = raw_data.get("sequence", 0)
-        
-        # Determine language
-        language = None
-        if "language" in raw_data:
-            language = raw_data["language"]
-        elif "content" in raw_data:
-            # Simple heuristic: if content has French words, mark as fr
-            content_lower = raw_data["content"].get("en", "").lower()
-            if any(word in content_lower for word in ["oui", "non", "monsieur", "madame"]):
-                language = "fr"
-            else:
-                language = "en"
-        
-        return {
-            "debate_hansard_id": raw_data.get("debate", ""),  # URL to debate
-            "politician_id": politician.get("id") if politician else None,
-            "speaker_name": politician.get("name") if politician else raw_data.get("h3", {}).get("en", "Speaker"),
-            "sequence": sequence,
-            "language": language,
-            "text_content": raw_data.get("content", {}).get("en", ""),
-            "timestamp_start": raw_data.get("time"),
-            "timestamp_end": None,  # Not provided by API
+            "chamber": raw_data.get("chamber"),
+            "debate_type": raw_data.get("type"),
             "url": raw_data.get("url"),
-            "source": "openparliament",
-            "fetched_at": datetime.utcnow().isoformat()
+            "source": self.source_name,
+            "fetched_at": datetime.utcnow().isoformat(),
         }
+
+    def _normalize_speech(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize speech payload."""
+        politician = raw_data.get("politician") or {}
+        content = raw_data.get("content") or {}
+        if isinstance(content, dict):
+            text_en = content.get("en")
+            text_fr = content.get("fr")
+            text_primary = text_en or text_fr
+        else:
+            text_primary = content
+            text_en = None
+            text_fr = None
+
+        debate = raw_data.get("debate") or {}
+        debate_id = debate.get("id") if isinstance(debate, dict) else debate
+
+        return {
+            "speech_id": raw_data.get("id"),
+            "debate_id": debate_id,
+            "politician_id": politician.get("id"),
+            "speaker_name": politician.get("name") or raw_data.get("speaker"),
+            "language": raw_data.get("language"),
+            "sequence": raw_data.get("sequence"),
+            "text_content": text_primary,
+            "text_content_en": text_en,
+            "text_content_fr": text_fr,
+            "timestamp_start": raw_data.get("time"),
+            "timestamp_end": raw_data.get("end_time"),
+            "source": self.source_name,
+            "fetched_at": datetime.utcnow().isoformat(),
+        }
+
+    async def close(self) -> None:
+        """Close the HTTP client."""
+        await self.client.aclose()
