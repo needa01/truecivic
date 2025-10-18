@@ -71,8 +71,8 @@ class Database:
             pool_kwargs = {}
             logger.info("Using SQLite with NullPool")
         else:
-            # PostgreSQL: Use connection pooling
-            pool_class = QueuePool
+            # PostgreSQL: Use default async pooling (automatically uses AsyncAdaptedQueuePool)
+            pool_class = None  # Let SQLAlchemy choose the appropriate async pool
             pool_kwargs = {
                 "pool_size": settings.db.pool_size,
                 "max_overflow": settings.db.max_overflow,
@@ -80,19 +80,21 @@ class Database:
                 "pool_recycle": settings.db.pool_recycle,
             }
             logger.info(
-                f"Using PostgreSQL with QueuePool "
+                f"Using PostgreSQL with default async pooling "
                 f"(size={settings.db.pool_size}, "
                 f"max_overflow={settings.db.max_overflow})"
             )
         
         # Create async engine
-        self.engine = create_async_engine(
-            connection_string,
-            echo=settings.db.echo,
-            echo_pool=settings.db.echo_pool,
-            poolclass=pool_class,
+        engine_kwargs = {
+            "echo": settings.db.echo,
+            "echo_pool": settings.db.echo_pool,
             **pool_kwargs
-        )
+        }
+        if pool_class is not None:
+            engine_kwargs["poolclass"] = pool_class
+        
+        self.engine = create_async_engine(connection_string, **engine_kwargs)
         
         # Create session factory
         self.session_factory = async_sessionmaker(
