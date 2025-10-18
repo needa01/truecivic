@@ -98,7 +98,10 @@ class DatabaseConfig(BaseSettings):
         if self.database_url:
             url = self.database_url
             # Convert async drivers to sync equivalents
-            url = url.replace("+asyncpg", "+psycopg")
+            if "+asyncpg" in url:
+                url = url.replace("+asyncpg", "+psycopg")
+            elif "postgresql://" in url and "+psycopg" not in url:
+                url = url.replace("postgresql://", "postgresql+psycopg://", 1)
             return url
         
         # Replace async drivers with sync equivalents
