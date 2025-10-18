@@ -7,9 +7,7 @@ different database, cache, and message queue configurations.
 Responsibility: Centralized configuration and environment management
 """
 
-import os
 from enum import Enum
-from pathlib import Path
 from typing import Optional, List
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -28,10 +26,10 @@ class DatabaseConfig(BaseSettings):
     
     # Connection settings - prioritize DATABASE_URL env var
     database_url: Optional[str] = Field(default=None, alias="DATABASE_URL")
-    driver: str = Field(default="sqlite+aiosqlite")
-    host: Optional[str] = Field(default=None)
-    port: Optional[int] = Field(default=None)
-    database: str = Field(default="parliament_explorer.db")
+    driver: str = Field(default="postgresql+asyncpg")
+    host: Optional[str] = Field(default="localhost")
+    port: Optional[int] = Field(default=5432)
+    database: str = Field(default="parliament_explorer")
     username: Optional[str] = Field(default=None)
     password: Optional[str] = Field(default=None)
     
@@ -70,23 +68,23 @@ class DatabaseConfig(BaseSettings):
             return url
         
         if self.driver.startswith("sqlite"):
-            # SQLite: use local file path
-            db_path = Path(self.database)
-            return f"{self.driver}:///{db_path.absolute()}"
-        else:
-            # PostgreSQL: use host/port/credentials
-            auth = ""
-            if self.username:
-                auth = self.username
-                if self.password:
-                    auth = f"{auth}:{self.password}"
-                auth = f"{auth}@"
-            
-            host_port = self.host or "localhost"
-            if self.port:
-                host_port = f"{host_port}:{self.port}"
-            
-            return f"{self.driver}://{auth}{host_port}/{self.database}"
+            raise ValueError(
+                "SQLite is no longer supported. Configure a PostgreSQL/pgvector connection instead."
+            )
+        
+        # PostgreSQL: use host/port/credentials
+        auth = ""
+        if self.username:
+            auth = self.username
+            if self.password:
+                auth = f"{auth}:{self.password}"
+            auth = f"{auth}@"
+        
+        host_port = self.host or "localhost"
+        if self.port:
+            host_port = f"{host_port}:{self.port}"
+        
+        return f"{self.driver}://{auth}{host_port}/{self.database}"
     
     @property
     def sync_connection_string(self) -> str:
@@ -100,31 +98,30 @@ class DatabaseConfig(BaseSettings):
         if self.database_url:
             url = self.database_url
             # Convert async drivers to sync equivalents
-            url = url.replace("+asyncpg", "+psycopg2")
-            url = url.replace("+aiosqlite", "")
+            url = url.replace("+asyncpg", "+psycopg")
             return url
         
         # Replace async drivers with sync equivalents
-        sync_driver = self.driver.replace("+aiosqlite", "").replace("+asyncpg", "+psycopg2")
+        sync_driver = self.driver.replace("+asyncpg", "+psycopg")
         
         if sync_driver.startswith("sqlite"):
-            # SQLite: use local file path
-            db_path = Path(self.database)
-            return f"{sync_driver}:///{db_path.absolute()}"
-        else:
-            # PostgreSQL: use host/port/credentials
-            auth = ""
-            if self.username:
-                auth = self.username
-                if self.password:
-                    auth = f"{auth}:{self.password}"
-                auth = f"{auth}@"
-            
-            host_port = self.host or "localhost"
-            if self.port:
-                host_port = f"{host_port}:{self.port}"
-            
-            return f"{sync_driver}://{auth}{host_port}/{self.database}"
+            raise ValueError(
+                "SQLite is no longer supported. Configure a PostgreSQL/pgvector connection instead."
+            )
+        
+        # PostgreSQL: use host/port/credentials
+        auth = ""
+        if self.username:
+            auth = self.username
+            if self.password:
+                auth = f"{auth}:{self.password}"
+            auth = f"{auth}@"
+        
+        host_port = self.host or "localhost"
+        if self.port:
+            host_port = f"{host_port}:{self.port}"
+        
+        return f"{sync_driver}://{auth}{host_port}/{self.database}"
 
 
 class RedisConfig(BaseSettings):
@@ -233,7 +230,7 @@ class Settings(BaseSettings):
     3. Default values
     
     Example:
-        # Local development (SQLite)
+        # Local development (PostgreSQL)
         settings = Settings()
         
         # Production (PostgreSQL)
@@ -265,24 +262,6 @@ class Settings(BaseSettings):
         if self.redis.enabled:
             return self.redis.connection_string
         return None
-    
-    @classmethod
-    def for_local(cls) -> "Settings":
-        """Create settings for local development (SQLite)"""
-        return cls(
-            app=AppConfig(
-                environment=Environment.LOCAL,
-                debug=True,
-                log_level="DEBUG"
-            ),
-            db=DatabaseConfig(
-                driver="sqlite+aiosqlite",
-                database="parliament_explorer.db",
-                echo=True
-            ),
-            redis=RedisConfig(enabled=False),
-            kafka=KafkaConfig(enabled=False)
-        )
     
     @classmethod
     def for_production(cls) -> "Settings":
