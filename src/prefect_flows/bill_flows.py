@@ -32,6 +32,8 @@ async def fetch_bills_task(
     limit: int = 50,
     parliament: Optional[int] = None,
     session: Optional[int] = None,
+    introduced_after: Optional[datetime] = None,
+    introduced_before: Optional[datetime] = None,
 ) -> Dict[str, Any]:
     """
     Fetch bills from OpenParliament, enrich with LEGISinfo, and persist to database.
@@ -45,7 +47,14 @@ async def fetch_bills_task(
         Dictionary with operation statistics
     """
     logger = get_run_logger()
-    logger.info(f"Starting bill fetch: limit={limit}, parliament={parliament}, session={session}")
+    logger.info(
+        "Starting bill fetch: limit=%s, parliament=%s, session=%s, introduced_after=%s, introduced_before=%s",
+        limit,
+        parliament,
+        session,
+        introduced_after,
+        introduced_before,
+    )
     
     # Initialize database and integration service
     db = Database()
@@ -59,6 +68,8 @@ async def fetch_bills_task(
                 limit=limit,
                 parliament=parliament,
                 session=session,
+                introduced_after=introduced_after,
+                introduced_before=introduced_before,
             )
             
             logger.info(
@@ -137,7 +148,11 @@ async def monitor_fetch_operations_task(hours_back: int = 24) -> Dict[str, Any]:
     description="Fetch latest bills from OpenParliament and LEGISinfo",
     log_prints=True,
 )
-async def fetch_latest_bills_flow(limit: int = 50) -> Dict[str, Any]:
+async def fetch_latest_bills_flow(
+    limit: int = 50,
+    introduced_after: Optional[datetime] = None,
+    introduced_before: Optional[datetime] = None,
+) -> Dict[str, Any]:
     """
     Main flow for fetching latest bills.
     
@@ -157,7 +172,11 @@ async def fetch_latest_bills_flow(limit: int = 50) -> Dict[str, Any]:
     logger.info(f"🏛️ Starting Parliament Explorer bill fetch flow (limit={limit})")
     
     # Fetch bills
-    result = await fetch_bills_task(limit=limit)
+    result = await fetch_bills_task(
+        limit=limit,
+        introduced_after=introduced_after,
+        introduced_before=introduced_before,
+    )
     
     logger.info(
         f"✅ Flow complete: {result['bills_fetched']} bills processed, "
@@ -176,6 +195,8 @@ async def fetch_parliament_session_bills_flow(
     parliament: int,
     session: int,
     limit: int = 1000,
+    introduced_after: Optional[datetime] = None,
+    introduced_before: Optional[datetime] = None,
 ) -> Dict[str, Any]:
     """
     Backfill flow for fetching all bills from a specific parliament and session.
@@ -196,6 +217,8 @@ async def fetch_parliament_session_bills_flow(
         limit=limit,
         parliament=parliament,
         session=session,
+        introduced_after=introduced_after,
+        introduced_before=introduced_before,
     )
     
     logger.info(
@@ -233,6 +256,47 @@ async def monitor_fetch_operations_flow(hours_back: int = 24) -> Dict[str, Any]:
     )
     
     return stats
+
+
+@flow(
+    name="fetch-bills",
+    description="Fetch bills with optional date filters",
+    log_prints=True,
+)
+async def fetch_bills_flow(
+    parliament: Optional[int] = None,
+    session: Optional[int] = None,
+    limit: int = 100,
+    introduced_after: Optional[datetime] = None,
+    introduced_before: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    """General-purpose flow for fetching bills with optional filters."""
+    logger = get_run_logger()
+    logger.info(
+        "🏛️ Fetching bills (parliament=%s, session=%s, limit=%s, introduced_after=%s, introduced_before=%s)",
+        parliament,
+        session,
+        limit,
+        introduced_after,
+        introduced_before,
+    )
+
+    result = await fetch_bills_task(
+        limit=limit,
+        parliament=parliament,
+        session=session,
+        introduced_after=introduced_after,
+        introduced_before=introduced_before,
+    )
+
+    logger.info(
+        "✅ Fetch complete: %s bills processed (created=%s, updated=%s)",
+        result.get("bills_fetched", 0),
+        result.get("created", 0),
+        result.get("updated", 0),
+    )
+
+    return result
 
 
 if __name__ == "__main__":
