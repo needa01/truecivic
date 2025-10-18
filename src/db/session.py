@@ -214,3 +214,15 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         except Exception:
             await session.rollback()
             raise
+
+
+async def get_session() -> AsyncGenerator[AsyncSession, None]:
+    """
+    Backwards-compatible dependency alias expected by existing API routes.
+    
+    Yields:
+        AsyncSession: database session managed with the same commit/rollback
+        semantics as `get_db`.
+    """
+    async for session in get_db():
+        yield session
