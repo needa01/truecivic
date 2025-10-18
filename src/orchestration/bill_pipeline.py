@@ -68,6 +68,8 @@ class BillPipeline:
         session: Optional[int] = None,
         limit: int = 100,
         enrich: Optional[bool] = None,
+        introduced_after: Optional[datetime] = None,
+        introduced_before: Optional[datetime] = None,
         **kwargs: Any
     ) -> AdapterResponse[Bill]:
         """
@@ -92,7 +94,8 @@ class BillPipeline:
         
         logger.info(
             f"Starting bill pipeline: parliament={parliament}, "
-            f"session={session}, limit={limit}, enrich={should_enrich}"
+            f"session={session}, limit={limit}, enrich={should_enrich}, "
+            f"introduced_after={introduced_after}, introduced_before={introduced_before}"
         )
         
         # Stage 1: Fetch bills from OpenParliament
@@ -101,7 +104,9 @@ class BillPipeline:
         openparliament_response = await self._fetch_with_retry(
             parliament=parliament,
             session=session,
-            limit=limit
+            limit=limit,
+            introduced_after=introduced_after,
+            introduced_before=introduced_before
         )
         
         # Check if fetch succeeded
@@ -167,7 +172,9 @@ class BillPipeline:
         self,
         parliament: Optional[int],
         session: Optional[int],
-        limit: int
+        limit: int,
+        introduced_after: Optional[datetime] = None,
+        introduced_before: Optional[datetime] = None
     ) -> AdapterResponse[Bill]:
         """
         Fetch bills from OpenParliament with retry logic.
@@ -178,7 +185,9 @@ class BillPipeline:
             return await self.openparliament_adapter.fetch(
                 parliament=parliament,
                 session=session,
-                limit=limit
+                limit=limit,
+                introduced_after=introduced_after,
+                introduced_before=introduced_before
             )
         
         try:
