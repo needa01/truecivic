@@ -18,6 +18,7 @@ COPY src/ ./src/
 COPY api/ ./api/
 COPY alembic/ ./alembic/
 COPY alembic.ini .
+COPY scripts/ ./scripts/
 
 # Expose port (Railway sets PORT env var)
 EXPOSE ${PORT:-8000}
@@ -27,4 +28,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import requests; requests.get('http://localhost:${PORT:-8000}/health')"
 
 # Run migrations and start server
-CMD alembic upgrade head && uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000}
+# Use the enhanced migration script that handles timeouts and connection issues
+CMD python scripts/run_migrations.py && uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000}
