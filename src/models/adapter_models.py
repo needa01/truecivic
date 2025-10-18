@@ -190,4 +190,5 @@ class CommitteeData:
     short_name_en: Optional[str]
     short_name_fr: Optional[str]
     chamber: str
+    source_slug: Optional[str] = None
     parent_committee: Optional[str] = None
