@@ -14,9 +14,14 @@ import logging
 from ..orchestration.bill_pipeline import BillPipeline
 from ..db.session import db
 from ..db.repositories import BillRepository
+from ..db.repositories.bill_repository import (
+    BillPersistenceOutcome,
+    BillPersistenceStatus,
+)
 from ..db.models import FetchLogModel
 from ..models.adapter_models import AdapterStatus
 from ..models.bill import Bill
+from ..utils.hash_utils import compute_bill_hash, deduplicate_by_hash
 
 if TYPE_CHECKING:
     from ..db.session import Database
@@ -77,6 +82,8 @@ class BillIntegrationService:
         session: Optional[int] = None,
         limit: int = 100,
         enrich: bool = True,
+        introduced_after: Optional[datetime] = None,
+        introduced_before: Optional[datetime] = None,
         **kwargs
     ) -> dict:
         """
@@ -102,7 +109,8 @@ class BillIntegrationService:
         
         logger.info(
             f"Starting fetch and persist: parliament={parliament}, "
-            f"session={session}, limit={limit}, enrich={enrich}"
+            f"session={session}, limit={limit}, enrich={enrich}, "
+            f"introduced_after={introduced_after}, introduced_before={introduced_before}"
         )
         
         try:
@@ -113,10 +121,20 @@ class BillIntegrationService:
                 parliament=parliament,
                 session=session,
                 limit=limit,
-                enrich=enrich
+                enrich=enrich,
+                introduced_after=introduced_after,
+                introduced_before=introduced_before
             )
             
-            bills = pipeline_response.data or []
+            raw_bills = pipeline_response.data or []
+            bills, duplicates_skipped = deduplicate_by_hash(raw_bills, compute_bill_hash)
+            if duplicates_skipped:
+                logger.info(
+                    "Deduplicated %d bills from pipeline payload via content hash",
+                    duplicates_skipped,
+                )
+            else:
+                duplicates_skipped = 0
             
             logger.info(
                 f"Pipeline fetch complete: {len(bills)} bills, "
@@ -128,7 +146,9 @@ class BillIntegrationService:
             
             created_count = 0
             updated_count = 0
+            unchanged_count = 0
             persist_errors = []
+            persistence_outcomes: List[BillPersistenceOutcome] = []
             
             if bills:
                 # Use the database instance from __init__ if provided, otherwise use global
@@ -138,21 +158,21 @@ class BillIntegrationService:
                     repo = BillRepository(session_db)
                     
                     try:
-                        # Use bulk upsert for efficiency
-                        persisted_models = await repo.upsert_many(bills)
-                        
-                        # Count creates vs updates by checking if created_at == updated_at
-                        for model in persisted_models:
-                            # If created_at and updated_at are very close, it's a create
-                            time_diff = (model.updated_at - model.created_at).total_seconds()
-                            if time_diff < 1:  # Less than 1 second difference
+                        persistence_outcomes = await repo.upsert_many(bills)
+
+                        for outcome in persistence_outcomes:
+                            if outcome.status == BillPersistenceStatus.CREATED:
                                 created_count += 1
-                            else:
+                            elif outcome.status == BillPersistenceStatus.UPDATED:
                                 updated_count += 1
-                        
+                            else:
+                                unchanged_count += 1
+
                         logger.info(
-                            f"Persisted {len(persisted_models)} bills: "
-                            f"{created_count} created, {updated_count} updated"
+                            "Persistence summary: %d created, %d updated, %d unchanged",
+                            created_count,
+                            updated_count,
+                            unchanged_count,
                         )
                     
                     except Exception as e:
@@ -179,6 +199,8 @@ class BillIntegrationService:
                         "session": session,
                         "limit": limit,
                         "enrich": enrich,
+                        "introduced_after": introduced_after.isoformat() if introduced_after else None,
+                        "introduced_before": introduced_before.isoformat() if introduced_before else None,
                     },
                     errors=pipeline_response.errors + [
                         {"message": err} for err in persist_errors
@@ -193,6 +215,8 @@ class BillIntegrationService:
                 "persisted_count": created_count + updated_count,
                 "created": created_count,
                 "updated": updated_count,
+                "unchanged": unchanged_count,
+                "duplicates_skipped": duplicates_skipped,
                 "errors": [
                     err.message for err in pipeline_response.errors
                 ] + persist_errors,
@@ -202,8 +226,11 @@ class BillIntegrationService:
             }
             
             logger.info(
-                f"Fetch and persist complete: {result['persisted_count']} bills, "
-                f"{len(result['errors'])} errors"
+                "Fetch and persist complete: %d persisted, %d unchanged, %d duplicates skipped, %d errors",
+                result['persisted_count'],
+                unchanged_count,
+                duplicates_skipped,
+                len(result['errors']),
             )
             
             return result
@@ -232,6 +259,8 @@ class BillIntegrationService:
                             "session": session,
                             "limit": limit,
                             "enrich": enrich,
+                            "introduced_after": introduced_after.isoformat() if introduced_after else None,
+                            "introduced_before": introduced_before.isoformat() if introduced_before else None,
                         },
                         errors=[{"message": str(e)}]
                     )
