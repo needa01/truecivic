@@ -309,3 +309,259 @@ class FetchLogModel(Base):
             f"source={self.source}, "
             f"status={self.status})>"
         )
+
+
+class PartyModel(Base):
+    """Database model for political parties."""
+    
+    __tablename__ = "parties"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    jurisdiction: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    name_en: Mapped[str] = mapped_column(String(200), nullable=False)
+    name_fr: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    short_name_en: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    short_name_fr: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    abbreviation: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    color: Mapped[Optional[str]] = mapped_column(String(7), nullable=True)  # Hex color
+    website_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    __table_args__ = (
+        UniqueConstraint('jurisdiction', 'name_en', name='uq_party_natural_key'),
+    )
+    
+    def __repr__(self) -> str:
+        return f"<PartyModel(id={self.id}, name={self.name_en})>"
+
+
+class RidingModel(Base):
+    """Database model for electoral districts (ridings)."""
+    
+    __tablename__ = "ridings"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    jurisdiction: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    name_en: Mapped[str] = mapped_column(String(200), nullable=False)
+    name_fr: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    province: Mapped[Optional[str]] = mapped_column(String(2), nullable=True, index=True)
+    riding_code: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    __table_args__ = (
+        UniqueConstraint('jurisdiction', 'name_en', name='uq_riding_natural_key'),
+    )
+    
+    def __repr__(self) -> str:
+        return f"<RidingModel(id={self.id}, name={self.name_en})>"
+
+
+class VoteModel(Base):
+    """Database model for parliamentary votes."""
+    
+    __tablename__ = "votes"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    jurisdiction: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    vote_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    parliament: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    session: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    vote_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    chamber: Mapped[str] = mapped_column(String(50), nullable=False)
+    vote_date: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    vote_description_en: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    vote_description_fr: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    bill_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('bills.id'), nullable=True, index=True)
+    result: Mapped[str] = mapped_column(String(50), nullable=False)
+    yeas: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    nays: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    abstentions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    __table_args__ = (
+        UniqueConstraint('jurisdiction', 'vote_id', name='uq_vote_natural_key'),
+        Index('idx_vote_parliament_session', 'parliament', 'session'),
+    )
+    
+    def __repr__(self) -> str:
+        return f"<VoteModel(id={self.id}, vote_id={self.vote_id}, result={self.result})>"
+
+
+class VoteRecordModel(Base):
+    """Database model for individual politician votes."""
+    
+    __tablename__ = "vote_records"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    vote_id: Mapped[int] = mapped_column(Integer, ForeignKey('votes.id'), nullable=False, index=True)
+    politician_id: Mapped[int] = mapped_column(Integer, ForeignKey('politicians.id'), nullable=False, index=True)
+    vote_position: Mapped[str] = mapped_column(String(20), nullable=False)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    
+    __table_args__ = (
+        UniqueConstraint('vote_id', 'politician_id', name='uq_vote_record_natural_key'),
+    )
+    
+    def __repr__(self) -> str:
+        return f"<VoteRecordModel(id={self.id}, vote_id={self.vote_id}, position={self.vote_position})>"
+
+
+class CommitteeModel(Base):
+    """Database model for parliamentary committees."""
+    
+    __tablename__ = "committees"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    jurisdiction: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    committee_code: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    name_en: Mapped[str] = mapped_column(String(200), nullable=False)
+    name_fr: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    chamber: Mapped[str] = mapped_column(String(50), nullable=False)
+    committee_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    website_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    __table_args__ = (
+        UniqueConstraint('jurisdiction', 'committee_code', name='uq_committee_natural_key'),
+    )
+    
+    def __repr__(self) -> str:
+        return f"<CommitteeModel(id={self.id}, code={self.committee_code})>"
+
+
+class DebateModel(Base):
+    """Database model for parliamentary debates (Hansard)."""
+    
+    __tablename__ = "debates"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    jurisdiction: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    hansard_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    parliament: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    session: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    sitting_date: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    chamber: Mapped[str] = mapped_column(String(50), nullable=False)
+    debate_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    document_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    __table_args__ = (
+        UniqueConstraint('jurisdiction', 'hansard_id', name='uq_debate_natural_key'),
+        Index('idx_debate_parliament_session', 'parliament', 'session'),
+    )
+    
+    def __repr__(self) -> str:
+        return f"<DebateModel(id={self.id}, hansard_id={self.hansard_id})>"
+
+
+class SpeechModel(Base):
+    """Database model for individual speeches in debates."""
+    
+    __tablename__ = "speeches"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    debate_id: Mapped[int] = mapped_column(Integer, ForeignKey('debates.id'), nullable=False, index=True)
+    politician_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('politicians.id'), nullable=True, index=True)
+    speaker_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    language: Mapped[Optional[str]] = mapped_column(String(2), nullable=True)
+    text_content: Mapped[str] = mapped_column(Text, nullable=False)
+    timestamp_start: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    timestamp_end: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    
+    __table_args__ = (
+        UniqueConstraint('debate_id', 'sequence', name='uq_speech_natural_key'),
+    )
+    
+    def __repr__(self) -> str:
+        return f"<SpeechModel(id={self.id}, speaker={self.speaker_name})>"
+
+
+class DocumentModel(Base):
+    """Database model for text documents (for embeddings)."""
+    
+    __tablename__ = "documents"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    jurisdiction: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    entity_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    entity_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    content_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    language: Mapped[str] = mapped_column(String(2), nullable=False)
+    text_content: Mapped[str] = mapped_column(Text, nullable=False)
+    char_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    word_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    __table_args__ = (
+        UniqueConstraint('entity_type', 'entity_id', 'content_type', 'language', name='uq_document_natural_key'),
+        Index('idx_document_entity', 'entity_type', 'entity_id'),
+    )
+    
+    def __repr__(self) -> str:
+        return f"<DocumentModel(id={self.id}, type={self.entity_type})>"
+
+
+class EmbeddingModel(Base):
+    """Database model for vector embeddings."""
+    
+    __tablename__ = "embeddings"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    document_id: Mapped[int] = mapped_column(Integer, ForeignKey('documents.id'), nullable=False, index=True)
+    chunk_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    chunk_text: Mapped[str] = mapped_column(Text, nullable=False)
+    vector: Mapped[str] = mapped_column(Text, nullable=False)  # JSON array of floats (1536 dims)
+    token_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    start_char: Mapped[int] = mapped_column(Integer, nullable=False)
+    end_char: Mapped[int] = mapped_column(Integer, nullable=False)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    
+    __table_args__ = (
+        UniqueConstraint('document_id', 'chunk_id', name='uq_embedding_natural_key'),
+    )
+    
+    def __repr__(self) -> str:
+        return f"<EmbeddingModel(id={self.id}, document_id={self.document_id})>"
+
+
+class RankingModel(Base):
+    """Database model for entity rankings."""
+    
+    __tablename__ = "rankings"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    jurisdiction: Mapped[str] = mapped_column(String(50), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    entity_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    score: Mapped[float] = mapped_column(nullable=False, index=True)
+    score_breakdown: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    computed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    
+    __table_args__ = (
+        UniqueConstraint('entity_type', 'entity_id', name='uq_ranking_natural_key'),
+        Index('idx_ranking_entity', 'entity_type', 'entity_id'),
+        Index('idx_ranking_score', 'entity_type', 'score'),
+    )
+    
+    def __repr__(self) -> str:
+        return f"<RankingModel(id={self.id}, type={self.entity_type}, score={self.score})>"
+
