@@ -16,12 +16,27 @@ from src.adapters.base_adapter import BaseAdapter
 logger = logging.getLogger(__name__)
 
 
-class HansardAdapter(BaseAdapter):
+class HansardAdapter(BaseAdapter[DebateData]):
     """Adapter for fetching Hansard debate data from OpenParliament API."""
     
     def __init__(self, api_base_url: str = "https://api.openparliament.ca"):
-        super().__init__(api_base_url)
-        self.source_name = "openparliament_hansard"
+        super().__init__(
+            source_name="openparliament_hansard",
+            rate_limit_per_second=1.0,
+            max_retries=3,
+            timeout_seconds=30,
+        )
+        self.api_base_url = api_base_url
+
+    async def fetch(self, **kwargs: Any):  # type: ignore[override]
+        raise NotImplementedError(
+            "Use fetch_debates_for_session or fetch_debate_detail instead."
+        )
+
+    def normalize(self, raw_data: Any) -> DebateData:  # type: ignore[override]
+        raise NotImplementedError(
+            "HansardAdapter relies on specialized parse helpers."
+        )
     
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10))
     async def fetch_debates_for_session(
@@ -50,8 +65,8 @@ class HansardAdapter(BaseAdapter):
         }
         
         logger.info(f"Fetching debates for Parliament {parliament}, Session {session}")
-        
-        async with httpx.AsyncClient(timeout=30.0) as client:
+
+        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
             while url:
                 response = await client.get(url, params=params if url == f"{self.api_base_url}/debates/" else None)
                 response.raise_for_status()
@@ -85,7 +100,7 @@ class HansardAdapter(BaseAdapter):
         Returns:
             DebateData with speeches
         """
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
             response = await client.get(debate_url)
             response.raise_for_status()
             data = response.json()
@@ -113,8 +128,8 @@ class HansardAdapter(BaseAdapter):
         }
         
         logger.info(f"Fetching speeches for debate {debate_id}")
-        
-        async with httpx.AsyncClient(timeout=30.0) as client:
+
+        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
             while url:
                 response = await client.get(url, params=params if url == f"{self.api_base_url}/debates/speeches/" else None)
                 response.raise_for_status()

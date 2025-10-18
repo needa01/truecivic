@@ -12,17 +12,35 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from src.models.adapter_models import CommitteeData
 from src.adapters.base_adapter import BaseAdapter
+from src.utils.committee_registry import build_committee_identifier, resolve_source_slug
 
 logger = logging.getLogger(__name__)
 
 
-class CommitteeAdapter(BaseAdapter):
+class CommitteeAdapter(BaseAdapter[CommitteeData]):
     """Adapter for fetching committee data from OpenParliament API."""
     
     def __init__(self, api_base_url: str = "https://api.openparliament.ca"):
-        super().__init__(api_base_url)
-        self.source_name = "openparliament_committees"
+        super().__init__(
+            source_name="openparliament_committees",
+            rate_limit_per_second=1.0,
+            max_retries=3,
+            timeout_seconds=30,
+        )
+        self.api_base_url = api_base_url
     
+    async def fetch(self, **kwargs: Any):  # type: ignore[override]
+        """Generic fetch is not implemented for this legacy adapter."""
+        raise NotImplementedError(
+            "Use fetch_committees_for_session or fetch_all_committees instead."
+        )
+
+    def normalize(self, raw_data: Any) -> CommitteeData:  # type: ignore[override]
+        """Normalization is handled by specialized parser helpers."""
+        raise NotImplementedError(
+            "CommitteeAdapter uses _parse_committee for normalization."
+        )
+
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10))
     async def fetch_committees_for_session(
         self,
@@ -51,7 +69,7 @@ class CommitteeAdapter(BaseAdapter):
         
         logger.info(f"Fetching committees for Parliament {parliament}, Session {session}")
         
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
             while url:
                 response = await client.get(url, params=params if url == f"{self.api_base_url}/committees/" else None)
                 response.raise_for_status()
@@ -93,7 +111,7 @@ class CommitteeAdapter(BaseAdapter):
             "format": "json"
         }
         
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
             response = await client.get(url, params=params)
             response.raise_for_status()
             data = response.json()
@@ -130,7 +148,7 @@ class CommitteeAdapter(BaseAdapter):
         
         logger.info(f"Fetching activities for committee {committee_slug}")
         
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
             while url:
                 response = await client.get(url, params=params if "/activities/" in url and "?" not in url else None)
                 response.raise_for_status()
@@ -154,21 +172,46 @@ class CommitteeAdapter(BaseAdapter):
             # Extract committee identifiers
             slug = data.get("slug")
             acronym = data.get("acronym", {})
-            
+
             if not slug:
                 return None
-            
+
             # Get acronym based on language
             acronym_en = acronym.get("en") if isinstance(acronym, dict) else acronym
             acronym_fr = acronym.get("fr") if isinstance(acronym, dict) else None
+
+            identifier_seed = acronym_en or slug
+            identifier = build_committee_identifier(identifier_seed)
+            internal_slug = identifier.internal_slug
+            source_slug = resolve_source_slug(slug) or identifier.source_slug
             
             # Get committee names
-            name_en = data.get("name_en") or data.get("name")
-            name_fr = data.get("name_fr")
+            name_en_raw = data.get("name_en") or data.get("name")
+            name_fr_raw = data.get("name_fr") or data.get("name")
+
+            if isinstance(name_en_raw, dict):
+                name_en = name_en_raw.get("en") or name_en_raw.get("fr")
+            else:
+                name_en = name_en_raw
+
+            if isinstance(name_fr_raw, dict):
+                name_fr = name_fr_raw.get("fr") or name_fr_raw.get("en")
+            else:
+                name_fr = name_fr_raw
             
             # Get short names if available
-            short_name_en = data.get("short_name_en") or data.get("short_name")
-            short_name_fr = data.get("short_name_fr")
+            short_name_en_raw = data.get("short_name_en") or data.get("short_name")
+            short_name_fr_raw = data.get("short_name_fr") or data.get("short_name")
+
+            if isinstance(short_name_en_raw, dict):
+                short_name_en = short_name_en_raw.get("en") or short_name_en_raw.get("fr")
+            else:
+                short_name_en = short_name_en_raw
+
+            if isinstance(short_name_fr_raw, dict):
+                short_name_fr = short_name_fr_raw.get("fr") or short_name_fr_raw.get("en")
+            else:
+                short_name_fr = short_name_fr_raw
             
             # Determine parent committee (for subcommittees)
             parent_committee = data.get("parent")
@@ -181,16 +224,19 @@ class CommitteeAdapter(BaseAdapter):
             
             # Committee type/chamber
             chamber = "House"  # Most committees are House committees
+            normalized_name_en = (name_en or "") if isinstance(name_en, str) else str(name_en or "")
+
             if data.get("joint"):
                 chamber = "Joint"
-            elif "senate" in (name_en or "").lower():
+            elif "senate" in normalized_name_en.lower():
                 chamber = "Senate"
             
             return CommitteeData(
-                committee_id=f"ca-federal-{parliament}-{session}-committee-{slug}",
+                committee_id=f"ca-federal-{parliament}-{session}-committee-{identifier.code}",
                 parliament=parliament,
                 session=session,
-                committee_slug=slug,
+                committee_slug=internal_slug,
+                source_slug=source_slug,
                 acronym_en=acronym_en,
                 acronym_fr=acronym_fr,
                 name_en=name_en,
