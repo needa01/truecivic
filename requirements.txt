@@ -21,6 +21,7 @@ alembic>=1.12.0
 aiosqlite>=0.19.0  # For local SQLite async
 asyncpg>=0.29.0  # For production PostgreSQL async
 psycopg2-binary>=2.9.0  # For Alembic migrations (sync driver)
+pgvector>=0.2.4  # Vector similarity search
 
 # Orchestration
 prefect>=2.14.0
@@ -33,10 +34,14 @@ redis>=5.0.0
 minio>=7.2.0  # S3-compatible object storage
 aiokafka>=0.10.0  # Kafka async client
 
-# API (will add when ready)
-# fastapi>=0.104.0
-# uvicorn[standard]>=0.24.0
-# strawberry-graphql>=0.209.0
+# CLI & Reporting
+rich>=13.7.0  # Beautiful terminal output
+
+# API - ACTIVE (REST and GraphQL)
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+# strawberry-graphql>=0.209.0  # GraphQL (future)
 
 # Testing
 pytest>=7.4.0
