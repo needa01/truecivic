@@ -93,8 +93,8 @@ class ServiceSetup:
                 print("❌ Missing DATABASE_PUBLIC_URL")
                 return False
             
-            # Alembic needs psycopg2 format (not asyncpg)
-            sync_db_url = db_url.replace("postgresql://", "postgresql+psycopg2://")
+            # Alembic needs psycopg sync driver (not asyncpg)
+            sync_db_url = db_url.replace("postgresql://", "postgresql+psycopg://")
             os.environ["DATABASE_URL"] = sync_db_url
             
             # Run migrations
