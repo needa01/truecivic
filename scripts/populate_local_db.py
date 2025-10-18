@@ -1,26 +1,28 @@
-"""
-Fetch REAL data and store in LOCAL SQLite database.
-
-This script:
-1. Uses LOCAL SQLite database (not PostgreSQL)
-2. Fetches REAL data from OpenParliament API
-3. Stores everything locally for frontend development
-
-Responsibility: Local data population for development
-"""
+"""Populate the PostgreSQL/pgvector database with real bill data for development."""
 
 import asyncio
 import sys
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 # Add project to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-# Force LOCAL environment with SQLite
-os.environ['ENVIRONMENT'] = 'local'
-os.environ['DB_DRIVER'] = 'sqlite+aiosqlite'
-os.environ['DB_DATABASE'] = 'parliament_explorer_local.db'
+
+def load_environment() -> None:
+    """Load .env files to configure database credentials."""
+    project_root = Path(__file__).parent.parent
+    for env_file in (project_root / ".env.local", project_root / ".env"):
+        if env_file.exists():
+            load_dotenv(env_file, override=False)
+
+
+load_environment()
+os.environ.setdefault('ENVIRONMENT', 'local')
+os.environ.pop('DB_DRIVER', None)
+os.environ.pop('DB_DATABASE', None)
 
 from src.services.bill_integration_service import BillIntegrationService
 from src.db.session import db
@@ -31,15 +33,16 @@ console = Console()
 
 
 async def populate_local_database():
-    """Fetch real data and populate local SQLite database."""
+    """Fetch real data and populate the configured PostgreSQL database."""
     
-    console.print("\n[bold cyan]🏛️  TrueCivic Local Data Population[/bold cyan]")
-    console.print("[dim]Fetching REAL data from OpenParliament API...[/dim]\n")
+    console.print("\n[bold cyan]🏛️  TrueCivic Data Population[/bold cyan]")
+    console.print("[dim]Target: PostgreSQL with pgvector[/dim]")
+    console.print("[dim]Fetching real data from OpenParliament API...[/dim]\n")
     
     try:
         # Initialize database
         await db.initialize()
-        console.print("✅ Local SQLite database initialized\n")
+        console.print("✅ PostgreSQL connection initialized\n")
         
         # Create service
         service = BillIntegrationService(database=db)
@@ -71,8 +74,7 @@ async def populate_local_database():
         console.print("\n[yellow]⚠️  Note: Politicians, Votes, and Debates services not yet implemented[/yellow]")
         console.print("[dim]   These will be added once integration services are created[/dim]")
         
-        console.print(f"\n[bold green]✅ Local database populated successfully![/bold green]")
-        console.print(f"[dim]Database location: {Path('parliament_explorer_local.db').absolute()}[/dim]\n")
+        console.print(f"\n[bold green]✅ Database populated successfully![/bold green]")
         
     except Exception as e:
         console.print(f"\n[bold red]❌ Error: {e}[/bold red]")

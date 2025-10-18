@@ -6,14 +6,18 @@ Responsibility: Database verification
 
 import asyncio
 from sqlalchemy import inspect
-from src.db.session import get_async_engine
+
+from src.db.session import db
 
 
 async def verify_tables():
     """Verify all tables exist in database."""
-    engine = get_async_engine()
-    
-    async with engine.connect() as conn:
+    if not db._initialized:
+        await db.initialize()
+
+    assert db.engine is not None, "Database engine failed to initialize"
+
+    async with db.engine.connect() as conn:
         # Run sync inspection in async context
         tables = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
         
