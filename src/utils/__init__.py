@@ -15,6 +15,12 @@ from .retry import (
     is_retryable_error,
     RetryError,
 )
+from .hash_utils import (
+    calculate_hash,
+    compute_bill_hash,
+    deduplicate_by_hash,
+)
+from .dedupe import dedupe_by_key
 
 __all__ = [
     "RateLimiter",
@@ -23,4 +29,8 @@ __all__ = [
     "calculate_backoff",
     "is_retryable_error",
     "RetryError",
+    "calculate_hash",
+    "compute_bill_hash",
+    "deduplicate_by_hash",
+    "dedupe_by_key",
 ]
