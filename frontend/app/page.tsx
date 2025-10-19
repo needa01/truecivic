@@ -7,7 +7,7 @@ import { FileText, Users, Vote, MessageSquare, ArrowRight, Gavel, Loader2 } from
 import { motion } from 'framer-motion';
 
 export default function Home() {
-  const { data: billsData, isLoading: billsLoading } = useQuery({
+  const { data: billsData } = useQuery({
     queryKey: ['bills', { parliament: 44, session: 1, page: 1, size: 5 }],
     queryFn: () => apiClient.getBills({ parliament: 44, session: 1, page: 1, size: 5 }),
   });
