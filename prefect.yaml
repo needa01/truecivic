@@ -10,8 +10,8 @@ build: null
 
 # Pull configuration (for retrieving flow code)
 pull:
-  - step: prefect.deployments.steps.set_working_directory
-    directory: "{{ env.PREFECT_WORKING_DIR | default('/app') }}"
+  - prefect.deployments.steps.set_working_directory:
+      directory: "{{ env.PREFECT_WORKING_DIR | default('/app') }}"
 
 # Push configuration (for storing flow code)
 push: null
