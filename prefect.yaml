@@ -9,9 +9,7 @@ prefect-version: 3.4.24
 build: null
 
 # Pull configuration (for retrieving flow code)
-pull:
-  - prefect.deployments.steps.set_working_directory:
-      directory: /app
+pull: null
 
 # Push configuration (for storing flow code)
 push: null
