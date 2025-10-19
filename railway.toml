@@ -4,7 +4,6 @@
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "api.dockerfile"
-watchPatterns = ["api/**", "src/**", "requirements.txt"]
 
 [deploy]
 restartPolicyType = "ON_FAILURE"
