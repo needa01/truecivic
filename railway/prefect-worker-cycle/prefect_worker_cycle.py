@@ -23,18 +23,28 @@ from prefect.client.schemas.filters import (
     WorkPoolFilterName,
 )
 
+
+def getenv_bool(name: str, default: bool) -> bool:
+    """Read an environment variable as a boolean."""
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() not in ("", "0", "false", "no", "off")
+
+
 POOL_NAME = os.getenv("PREFECT_WORK_POOL", "default-agent-pool")
 WORKER_NAME = os.getenv("PREFECT_WORKER_NAME", "scheduled-default-agent")
 WORKER_TYPE = os.getenv("PREFECT_WORKER_TYPE", "process")
 PREFETCH_SECONDS = os.getenv("PREFECT_WORKER_PREFETCH_SECONDS", "120")
 CONCURRENCY_LIMIT = os.getenv("PREFECT_WORKER_FLOW_LIMIT", "5")
+RUN_FOREVER = getenv_bool("PREFECT_WORKER_RUN_FOREVER", False)
 TRIGGER_DEPLOYMENTS = [
     part.strip()
     for part in os.getenv("PREFECT_TRIGGER_DEPLOYMENTS", "").split(",")
     if part.strip()
 ]
-WAIT_FOR_COMPLETION = (
-    os.getenv("PREFECT_WAIT_FOR_COMPLETION", "true").lower() != "false"
+WAIT_FOR_COMPLETION = getenv_bool(
+    "PREFECT_WAIT_FOR_COMPLETION", not RUN_FOREVER
 )
 WAIT_TIMEOUT = int(os.getenv("PREFECT_WAIT_TIMEOUT_SECONDS", "0"))
 WAIT_POLL_INTERVAL = int(os.getenv("PREFECT_WAIT_POLL_SECONDS", "30"))
@@ -45,7 +55,7 @@ ACTIVE_STATE_TYPES = [
     ).split(",")
     if state.strip()
 ]
-AUTO_PAUSE = os.getenv("PREFECT_AUTO_PAUSE", "true").lower() != "false"
+AUTO_PAUSE = getenv_bool("PREFECT_AUTO_PAUSE", not RUN_FOREVER)
 
 
 def run(cmd: Sequence[str]) -> None:
@@ -128,12 +138,13 @@ def main() -> None:
         WORKER_TYPE,
         "--name",
         WORKER_NAME,
-        "--run-once",
         "--prefetch-seconds",
         PREFETCH_SECONDS,
         "--limit",
         CONCURRENCY_LIMIT,
     ]
+    if not RUN_FOREVER:
+        worker_cmd.insert(worker_cmd.index("--prefetch-seconds"), "--run-once")
 
     try:
         run(worker_cmd)

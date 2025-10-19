@@ -25,6 +25,8 @@ Set these variables in the Railway service before enabling the cron schedule:
 - `PREFECT_WORKER_TYPE` *(optional)* – Worker type (`process`, `docker`, etc.)
 - `PREFECT_WORKER_PREFETCH_SECONDS` *(optional)* – How far ahead to prefetch
 - `PREFECT_WORKER_FLOW_LIMIT` *(optional)* – Max simultaneous flow runs
+- `PREFECT_WORKER_RUN_FOREVER` *(optional, default `false`)* – When `true`,
+  keeps the worker online until the container stops (no auto-pause)
 - `PREFECT_WAIT_FOR_COMPLETION` *(optional, default `true`)* – Wait until the
   pool has no flow runs in active states before exiting
 - `PREFECT_WAIT_TIMEOUT_SECONDS` *(optional)* – Give up waiting after this many
@@ -37,4 +39,7 @@ Set these variables in the Railway service before enabling the cron schedule:
 
 The script resumes the pool, launches a `--run-once` worker to drain scheduled
 runs, waits for active runs to finish, and then (by default) pauses the pool so
-no new work queues up while the cron job is idle.
+no new work queues up while the cron job is idle. Set
+`PREFECT_WORKER_RUN_FOREVER=true` (and optionally `PREFECT_AUTO_PAUSE=false`)
+to run a 24/7 worker for testing; disable the cron schedule in that case and
+deploy the service as a standard worker.
