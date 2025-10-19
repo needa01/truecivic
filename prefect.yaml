@@ -14,7 +14,7 @@ pull:
       id: clone_repo
       repository: "https://github.com/monuit/truecivic.git"
       branch: "main"
-      access_token: "{{ env.GITHUB_ACCESS_TOKEN | default('') }}"
+      access_token: "{{ env.GITHUB_ACCESS_TOKEN | default(omit) }}"
   - prefect.deployments.steps.set_working_directory:
       directory: "{{ clone_repo.directory }}"
 

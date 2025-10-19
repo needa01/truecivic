@@ -19,7 +19,7 @@ Set these variables in the Railway service before enabling the cron schedule:
 - `PREFECT_API_URL` – Prefect API endpoint
 - `PREFECT_API_KEY` *(optional)* – Required only when talking to Prefect Cloud
 - `GITHUB_ACCESS_TOKEN` *(optional)* – Personal access token for cloning if the
-  repository is private
+  repository is private or to avoid GitHub rate limits
 - `PREFECT_TRIGGER_DEPLOYMENTS` *(optional)* – Comma-separated list of
   deployment names to kick off before the worker starts
 - `PREFECT_WORK_POOL` *(optional)* – Defaults to `default-agent-pool`
