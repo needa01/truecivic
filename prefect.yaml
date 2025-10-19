@@ -77,3 +77,21 @@ deployments:
       - bills
       - manual
     description: "Backfill all bills from a specific parliament and session (manual trigger)"
+
+  # On-demand 2025 scoped backfill (bills, votes, debates, committees)
+  - name: backfill-2025-sample
+    entrypoint: src/prefect_flows/backfill_flow.py:backfill_2025_flow
+    work_pool:
+      name: default-agent-pool
+    # No schedule - triggered manually when needed
+    parameters:
+      bill_limit: 10
+      vote_limit: 10
+      debate_limit: 10
+      committee_limit: 10
+      meetings_limit: 5
+    tags:
+      - backfill
+      - manual
+      - 2025
+    description: "Run the scoped 2025 backfill (adjust limits when triggering manually)"
