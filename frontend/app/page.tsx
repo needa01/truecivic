@@ -8,8 +8,16 @@ import { motion } from 'framer-motion';
 
 export default function Home() {
   const { data: billsData } = useQuery({
-    queryKey: ['bills', { parliament: 44, session: 1, page: 1, size: 5 }],
-    queryFn: () => apiClient.getBills({ parliament: 44, session: 1, page: 1, size: 5 }),
+    queryKey: ['bills', { parliament: 44, session: 1, limit: 5, offset: 0 }],
+    queryFn: () =>
+      apiClient.getBills({
+        parliament: 44,
+        session: 1,
+        limit: 5,
+        offset: 0,
+        sort: 'introduced_date',
+        order: 'desc',
+      }),
   });
 
   const { data: committeesData, isLoading: committeesLoading, isError: committeesError } = useQuery({
