@@ -6,10 +6,10 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Copy the helper script used to manage the Prefect worker lifecycle
-COPY ../../scripts/prefect_worker_cycle.py ./scripts/prefect_worker_cycle.py
+COPY prefect_worker_cycle.py ./prefect_worker_cycle.py
 
 # Install Prefect (matches production worker version)
 RUN pip install --no-cache-dir prefect==3.4.24
 
 # Run the cycle once then exit
-CMD ["python", "scripts/prefect_worker_cycle.py"]
+CMD ["python", "prefect_worker_cycle.py"]
