@@ -5,6 +5,11 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# Install system dependencies required by Prefect pull steps (git clone)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends git && \
+    rm -rf /var/lib/apt/lists/*
+
 # Copy the helper script used to manage the Prefect worker lifecycle
 COPY prefect_worker_cycle.py ./prefect_worker_cycle.py
 

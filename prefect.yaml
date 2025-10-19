@@ -10,8 +10,13 @@ build: null
 
 # Pull configuration (for retrieving flow code)
 pull:
+  - prefect.deployments.steps.git_clone:
+      id: clone_repo
+      repository: "https://github.com/monuit/truecivic.git"
+      branch: "main"
+      access_token: "{{ env.GITHUB_ACCESS_TOKEN | default('') }}"
   - prefect.deployments.steps.set_working_directory:
-      directory: "."
+      directory: "{{ clone_repo.directory }}"
 
 # Push configuration (for storing flow code)
 push: null
