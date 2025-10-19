@@ -35,7 +35,6 @@ export default function VotesPage() {
         limit: PAGE_SIZE,
         skip: page * PAGE_SIZE,
       }),
-    keepPreviousData: true,
   });
 
   const votes = data?.votes ?? [];

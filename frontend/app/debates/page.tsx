@@ -35,7 +35,6 @@ export default function DebatesPage() {
         limit: PAGE_SIZE,
         skip: page * PAGE_SIZE,
       }),
-    keepPreviousData: true,
   });
 
   const debates = data?.debates ?? [];

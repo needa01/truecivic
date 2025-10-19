@@ -19,7 +19,6 @@ export default function PoliticiansPage() {
         offset: page * PAGE_SIZE,
         currentOnly: true,
       }),
-    keepPreviousData: true,
   });
 
   const hasMore = data?.has_more ?? false;
