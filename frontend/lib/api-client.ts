@@ -1,17 +1,13 @@
 /**
- * API Client for TrueCivic - automatically detects environment
- * Uses NEXT_PUBLIC_API_URL from .env.local (localhost) or production
+ * API Client for TrueCivic.
+ *
+ * Uses NEXT_PUBLIC_API_URL to build requests against the FastAPI backend.
+ * All helpers return the exact response shape produced by the API so the
+ * frontend can consume metadata like `has_more`, `limit`, and `offset`.
  */
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1/ca';
-
-export interface PaginatedResponse<T> {
-  items: T[];
-  total: number;
-  page: number;
-  size: number;
-  pages: number;
-}
+const rawBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1/ca';
+const API_BASE_URL = rawBaseUrl.replace(/\/$/, '');
 
 export interface Bill {
   id: number;
@@ -23,18 +19,18 @@ export interface Bill {
   title_fr: string | null;
   short_title_en: string | null;
   short_title_fr: string | null;
-  sponsor_politician_id: string | null;
+  sponsor_politician_id: number | null;
   sponsor_politician_name: string | null;
   introduced_date: string | null;
   law_status: string | null;
-  legisinfo_id: string | null;
+  royal_assent_date: string | null;
+  royal_assent_chapter: string | null;
+  legisinfo_id: number | null;
   legisinfo_status: string | null;
   legisinfo_summary_en: string | null;
   legisinfo_summary_fr: string | null;
   subject_tags: string[] | null;
   committee_studies: string[] | null;
-  royal_assent_date: string | null;
-  royal_assent_chapter: string | null;
   related_bill_numbers: string[] | null;
   source_openparliament: boolean;
   source_legisinfo: boolean;
@@ -44,49 +40,115 @@ export interface Bill {
   updated_at: string;
 }
 
+export interface BillListResponse {
+  bills: Bill[];
+  total: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+}
+
 export interface Politician {
   id: number;
-  openparliament_url: string;
+  jurisdiction: string;
+  politician_id: string;
   name: string;
-  party: string | null;
-  riding: string | null;
-  province: string | null;
-  current_member: boolean;
-  start_date: string | null;
-  end_date: string | null;
-  image_url: string | null;
-  email: string | null;
-  phone: string | null;
+  given_name: string | null;
+  family_name: string | null;
+  other_names: Record<string, unknown> | null;
+  current_party: string | null;
+  current_riding: string | null;
+  gender: string | null;
+  photo_url: string | null;
+  memberships: Record<string, unknown>[] | null;
+  source_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PoliticianListResponse {
+  politicians: Politician[];
+  total: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+}
+
+export interface VoteRecord {
+  natural_id: string;
+  jurisdiction: string;
+  vote_id: string;
+  politician_id: number;
+  vote_position: string;
   created_at: string;
   updated_at: string;
 }
 
 export interface Vote {
-  id: number;
-  vote_number: number;
+  natural_id: string;
+  jurisdiction: string;
   parliament: number;
   session: number;
-  date: string;
+  vote_number: number;
+  chamber: string;
+  vote_date: string | null;
+  vote_description_en: string | null;
+  vote_description_fr: string | null;
+  bill_number: string | null;
   result: string;
-  yea_count: number;
-  nay_count: number;
-  paired_count: number;
-  bill_id: number | null;
-  description_en: string | null;
-  description_fr: string | null;
+  yeas: number;
+  nays: number;
+  abstentions: number;
+  source_url: string | null;
+  created_at: string;
+  updated_at: string;
+  vote_records?: VoteRecord[];
+}
+
+export interface VoteListResponse {
+  votes: Vote[];
+  total: number;
+  skip: number;
+  limit: number;
+}
+
+export interface Speech {
+  natural_id: string;
+  jurisdiction: string;
+  debate_id: string;
+  politician_id: number | null;
+  content_en: string | null;
+  content_fr: string | null;
+  speech_time: string | null;
+  speaker_name: string | null;
+  speaker_role: string | null;
+  sequence: number;
   created_at: string;
   updated_at: string;
 }
 
 export interface Debate {
-  id: number;
-  date: string;
-  house: string;
-  number: number;
+  natural_id: string;
+  jurisdiction: string;
   parliament: number;
   session: number;
+  debate_number: string;
+  chamber: string;
+  debate_date: string | null;
+  topic_en: string | null;
+  topic_fr: string | null;
+  debate_type: string;
+  source_url: string | null;
   created_at: string;
   updated_at: string;
+  speeches?: Speech[];
+}
+
+export interface DebateListResponse {
+  debates: Debate[];
+  total: number;
+  skip: number;
+  limit: number;
 }
 
 export interface Committee {
@@ -115,127 +177,161 @@ export interface CommitteeList {
   limit: number;
 }
 
+type RequestOptions = RequestInit & { signal?: AbortSignal };
+
 class ApiClient {
   private baseUrl: string;
 
   constructor(baseUrl: string = API_BASE_URL) {
     this.baseUrl = baseUrl;
-    console.log('🔗 API Client initialized:', this.baseUrl);
-  }
-
-  private async request<T>(endpoint: string, options?: RequestInit): Promise<T> {
-    const url = `${this.baseUrl}${endpoint}`;
-    
-    try {
-      const response = await fetch(url, {
-        ...options,
-        headers: {
-          'Content-Type': 'application/json',
-          ...options?.headers,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`API Error: ${response.status} ${response.statusText}`);
-      }
-
-      return await response.json();
-    } catch (error) {
-      console.error(`API request failed: ${url}`, error);
-      throw error;
+    if (process.env.NODE_ENV !== 'production') {
+      // eslint-disable-next-line no-console
+      console.info('🔗 API Client base URL:', this.baseUrl);
     }
   }
 
-  // Bills
+  private async request<T>(endpoint: string, options?: RequestOptions): Promise<T> {
+    const url = `${this.baseUrl}${endpoint}`;
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options?.headers || {}),
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`API Error: ${response.status} ${response.statusText}`);
+    }
+
+    return (await response.json()) as T;
+  }
+
+  // Bills --------------------------------------------------------------------
   async getBills(params?: {
     parliament?: number;
     session?: number;
-    page?: number;
-    size?: number;
+    limit?: number;
+    offset?: number;
     sort?: string;
-  }): Promise<PaginatedResponse<Bill>> {
+    order?: 'asc' | 'desc';
+  }): Promise<BillListResponse> {
     const query = new URLSearchParams();
-    if (params?.parliament) query.set('parliament', params.parliament.toString());
-    if (params?.session) query.set('session', params.session.toString());
-    if (params?.page) query.set('page', params.page.toString());
-    if (params?.size) query.set('size', params.size.toString());
+    query.set('limit', String(params?.limit ?? 50));
+    query.set('offset', String(params?.offset ?? 0));
+    if (params?.parliament) query.set('parliament', String(params.parliament));
+    if (params?.session) query.set('session', String(params.session));
     if (params?.sort) query.set('sort', params.sort);
-    
-    return this.request<PaginatedResponse<Bill>>(`/bills?${query.toString()}`);
+    if (params?.order) query.set('order', params.order);
+
+    const qs = query.toString();
+    return this.request<BillListResponse>(`/bills${qs ? `?${qs}` : ''}`);
   }
 
   async getBillById(id: number): Promise<Bill> {
     return this.request<Bill>(`/bills/${id}`);
   }
 
-  async searchBills(query: string, page: number = 1, size: number = 20): Promise<PaginatedResponse<Bill>> {
-    const params = new URLSearchParams({ q: query, page: page.toString(), size: size.toString() });
-    return this.request<PaginatedResponse<Bill>>(`/bills/search?${params.toString()}`);
+  async searchBills(queryText: string, limit = 20, offset = 0): Promise<BillListResponse> {
+    const query = new URLSearchParams({
+      q: queryText,
+      limit: String(limit),
+      offset: String(offset),
+    });
+    return this.request<BillListResponse>(`/bills/search?${query.toString()}`);
   }
 
-  // Politicians
+  // Politicians --------------------------------------------------------------
   async getPoliticians(params?: {
-    riding?: string;
     party?: string;
-    current_only?: boolean;
-    page?: number;
-    size?: number;
-  }): Promise<PaginatedResponse<Politician>> {
+    riding?: string;
+    currentOnly?: boolean;
+    limit?: number;
+    offset?: number;
+  }): Promise<PoliticianListResponse> {
     const query = new URLSearchParams();
-    if (params?.riding) query.set('riding', params.riding);
+    query.set('limit', String(params?.limit ?? 50));
+    query.set('offset', String(params?.offset ?? 0));
     if (params?.party) query.set('party', params.party);
-    if (params?.current_only) query.set('current_only', 'true');
-    if (params?.page) query.set('page', params.page.toString());
-    if (params?.size) query.set('size', params.size.toString());
-    
-    return this.request<PaginatedResponse<Politician>>(`/politicians?${query.toString()}`);
+    if (params?.riding) query.set('riding', params.riding);
+    if (params?.currentOnly ?? true) query.set('current_only', 'true');
+    const qs = query.toString();
+    return this.request<PoliticianListResponse>(`/politicians${qs ? `?${qs}` : ''}`);
   }
 
   async getPoliticianById(id: number): Promise<Politician> {
     return this.request<Politician>(`/politicians/${id}`);
   }
 
-  // Votes
+  // Votes --------------------------------------------------------------------
   async getVotes(params?: {
     parliament?: number;
     session?: number;
-    page?: number;
-    size?: number;
-  }): Promise<PaginatedResponse<Vote>> {
+    limit?: number;
+    skip?: number;
+  }): Promise<VoteListResponse> {
     const query = new URLSearchParams();
-    if (params?.parliament) query.set('parliament', params.parliament.toString());
-    if (params?.session) query.set('session', params.session.toString());
-    if (params?.page) query.set('page', params.page.toString());
-    if (params?.size) query.set('size', params.size.toString());
-    
-    return this.request<PaginatedResponse<Vote>>(`/votes?${query.toString()}`);
+    query.set('limit', String(params?.limit ?? 100));
+    query.set('skip', String(params?.skip ?? 0));
+    if (params?.parliament) query.set('parliament', String(params.parliament));
+    if (params?.session) query.set('session', String(params.session));
+    const qs = query.toString();
+    return this.request<VoteListResponse>(`/votes${qs ? `?${qs}` : ''}`);
   }
 
-  async getVoteById(id: number): Promise<Vote> {
-    return this.request<Vote>(`/votes/${id}`);
+  async getVoteById(naturalId: string, options?: { includeRecords?: boolean }): Promise<Vote> {
+    const query = new URLSearchParams();
+    if (options?.includeRecords) query.set('include_records', 'true');
+    const qs = query.toString();
+    return this.request<Vote>(`/votes/${encodeURIComponent(naturalId)}${qs ? `?${qs}` : ''}`);
   }
 
-  // Debates
+  async getVoteRecords(naturalId: string, params?: { position?: string; skip?: number; limit?: number }) {
+    const query = new URLSearchParams();
+    if (params?.position) query.set('position', params.position);
+    if (typeof params?.skip === 'number') query.set('skip', String(params.skip));
+    if (typeof params?.limit === 'number') query.set('limit', String(params.limit));
+    const qs = query.toString();
+    return this.request<VoteRecord[]>(
+      `/votes/${encodeURIComponent(naturalId)}/records${qs ? `?${qs}` : ''}`
+    );
+  }
+
+  // Debates ------------------------------------------------------------------
   async getDebates(params?: {
     parliament?: number;
     session?: number;
-    page?: number;
-    size?: number;
-  }): Promise<PaginatedResponse<Debate>> {
+    limit?: number;
+    skip?: number;
+  }): Promise<DebateListResponse> {
     const query = new URLSearchParams();
-    if (params?.parliament) query.set('parliament', params.parliament.toString());
-    if (params?.session) query.set('session', params.session.toString());
-    if (params?.page) query.set('page', params.page.toString());
-    if (params?.size) query.set('size', params.size.toString());
-    
-    return this.request<PaginatedResponse<Debate>>(`/debates?${query.toString()}`);
+    query.set('limit', String(params?.limit ?? 100));
+    query.set('skip', String(params?.skip ?? 0));
+    if (params?.parliament) query.set('parliament', String(params.parliament));
+    if (params?.session) query.set('session', String(params.session));
+    const qs = query.toString();
+    return this.request<DebateListResponse>(`/debates${qs ? `?${qs}` : ''}`);
   }
 
-  async getDebateById(id: number): Promise<Debate> {
-    return this.request<Debate>(`/debates/${id}`);
+  async getDebateById(naturalId: string, options?: { includeSpeeches?: boolean }): Promise<Debate> {
+    const query = new URLSearchParams();
+    if (options?.includeSpeeches) query.set('include_speeches', 'true');
+    const qs = query.toString();
+    return this.request<Debate>(`/debates/${encodeURIComponent(naturalId)}${qs ? `?${qs}` : ''}`);
   }
 
-  // Committees
+  async getDebateSpeeches(naturalId: string, params?: { skip?: number; limit?: number; politicianId?: number }) {
+    const query = new URLSearchParams();
+    if (typeof params?.skip === 'number') query.set('skip', String(params.skip));
+    if (typeof params?.limit === 'number') query.set('limit', String(params.limit));
+    if (typeof params?.politicianId === 'number') query.set('politician_id', String(params.politicianId));
+    const qs = query.toString();
+    return this.request<Speech[]>(
+      `/debates/${encodeURIComponent(naturalId)}/speeches${qs ? `?${qs}` : ''}`
+    );
+  }
+
+  // Committees ---------------------------------------------------------------
   async getCommittees(params?: {
     parliament?: number;
     session?: number;
@@ -245,19 +341,16 @@ class ApiClient {
     limit?: number;
   }): Promise<CommitteeList> {
     const query = new URLSearchParams();
-    if (params?.parliament) query.set('parliament', params.parliament.toString());
-    if (params?.session) query.set('session', params.session.toString());
+    query.set('limit', String(params?.limit ?? 50));
+    query.set('skip', String(params?.skip ?? 0));
+    if (params?.parliament) query.set('parliament', String(params.parliament));
+    if (params?.session) query.set('session', String(params.session));
     if (params?.chamber) query.set('chamber', params.chamber);
     if (params?.slug) query.set('slug', params.slug);
-    if (typeof params?.skip === 'number') query.set('skip', params.skip.toString());
-    if (typeof params?.limit === 'number') query.set('limit', params.limit.toString());
-
-    const queryString = query.toString();
-    const endpoint = queryString ? `/committees?${queryString}` : `/committees`;
-    return this.request<CommitteeList>(endpoint);
+    const qs = query.toString();
+    return this.request<CommitteeList>(`/committees${qs ? `?${qs}` : ''}`);
   }
 }
 
-// Export singleton instance
 export const apiClient = new ApiClient();
 export default apiClient;
