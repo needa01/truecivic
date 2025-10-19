@@ -37,7 +37,6 @@ export default function BillsPage() {
         sort: 'introduced_date',
         order: 'desc',
       }),
-    keepPreviousData: true,
   });
 
   const hasMore = data?.has_more ?? false;
