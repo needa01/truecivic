@@ -85,11 +85,12 @@ deployments:
       name: default-agent-pool
     # No schedule - triggered manually when needed
     parameters:
-      bill_limit: 10
-      vote_limit: 10
-      debate_limit: 10
-      committee_limit: 10
-      meetings_limit: 5
+      bill_limit: null
+      vote_limit: null
+      debate_limit: null
+      committee_limit: null
+      meetings_limit: null
+      full: true
     tags:
       - backfill
       - manual

@@ -14,11 +14,12 @@ from scripts.backfill_2025_sample import backfill_2025
 
 @flow(name="backfill-2025")
 async def backfill_2025_flow(
-    bill_limit: int = 10,
-    vote_limit: int = 10,
-    debate_limit: int = 10,
-    committee_limit: int = 10,
-    meetings_limit: int = 5,
+    bill_limit: int | None = None,
+    vote_limit: int | None = None,
+    debate_limit: int | None = None,
+    committee_limit: int | None = None,
+    meetings_limit: int | None = None,
+    full: bool = True,
 ):
     """
     Prefect flow entrypoint for the 2025 backfill.
@@ -31,5 +32,6 @@ async def backfill_2025_flow(
         debate_limit=debate_limit,
         committee_limit=committee_limit,
         meetings_limit=meetings_limit,
+        full=full,
     )
     return await backfill_2025(args)
