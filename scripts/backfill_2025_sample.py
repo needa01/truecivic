@@ -17,6 +17,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+import logging
 
 from dotenv import load_dotenv
 
@@ -141,6 +142,7 @@ async def backfill_2025(args: argparse.Namespace) -> Dict[str, Any]:
         Aggregated results keyed by data domain.
     """
 
+    logger = logging.getLogger("backfill_2025")
     results: Dict[str, Any] = {}
     full_run = bool(getattr(args, "full", False))
 
@@ -155,6 +157,19 @@ async def backfill_2025(args: argparse.Namespace) -> Dict[str, Any]:
     if isinstance(session, str):
         cleaned = session.strip()
         session = int(cleaned) if cleaned.isdigit() else None
+
+    logger.info(
+        "Resolved backfill settings: parliament=%s session=%s full=%s "
+        "(requested limits: bills=%s votes=%s debates=%s committees=%s meetings=%s)",
+        parliament,
+        session,
+        full_run,
+        args.bill_limit,
+        args.vote_limit,
+        args.debate_limit,
+        args.committee_limit,
+        args.meetings_limit,
+    )
 
     # Bills (limit to 2025 introductions)
     bill_limit = _resolve_limit(args.bill_limit, full_run=full_run, domain="bills")
