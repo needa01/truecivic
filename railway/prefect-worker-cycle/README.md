@@ -41,6 +41,10 @@ Set these variables in the Railway service before enabling the cron schedule:
 - `PREFECT_WORKER_REPOSITORY` *(optional, default `https://github.com/monuit/truecivic.git`)* - Repository to preflight before starting the worker
 - `PREFECT_WORKER_BRANCH` *(optional, default `main`)* - Branch to check during repository preflight
 - `PREFECT_WORKER_VERIFY_REPOSITORY` *(optional, default `true`)* - Disable to skip the preflight git connectivity check
+- `TRUECIVIC_CODE_DIR` *(optional, default `/opt/truecivic`)* - Directory where the worker syncs the codebase
+- `TRUECIVIC_INSTALL_REQUIREMENTS` *(optional, default `true`)* - Install `requirements.txt` after syncing
+- `TRUECIVIC_REQUIREMENTS_FILE` *(optional, default `requirements.txt`)* - Override the requirements file path
+- `TRUECIVIC_INSTALL_EDITABLE` *(optional, default `false`)* - Install the project in editable mode (`pip install -e .`)
 
 The script resumes the pool, launches a `--run-once` worker to drain scheduled
 runs, waits for active runs to finish, and then (by default) pauses the pool so

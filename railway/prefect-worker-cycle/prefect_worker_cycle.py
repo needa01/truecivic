@@ -14,7 +14,8 @@ import shlex
 import subprocess
 import sys
 import time
-from typing import Sequence
+from pathlib import Path
+from typing import Mapping, Sequence
 
 from prefect.client.orchestration import get_client
 from prefect.client.schemas.filters import (
@@ -90,18 +91,39 @@ REPOSITORY_URL = os.getenv(
 )
 REPOSITORY_BRANCH = os.getenv("PREFECT_WORKER_BRANCH", "main")
 VERIFY_REPOSITORY = getenv_bool("PREFECT_WORKER_VERIFY_REPOSITORY", True)
+CODE_DIRECTORY = Path(
+    os.getenv("TRUECIVIC_CODE_DIR", "/opt/truecivic")
+).resolve()
+os.environ["TRUECIVIC_CODE_DIR"] = str(CODE_DIRECTORY)
+INSTALL_REQUIREMENTS = getenv_bool("TRUECIVIC_INSTALL_REQUIREMENTS", True)
+REQUIREMENTS_FILE = os.getenv("TRUECIVIC_REQUIREMENTS_FILE", "requirements.txt")
+INSTALL_EDITABLE = getenv_bool("TRUECIVIC_INSTALL_EDITABLE", False)
 
 
 def _format_command(cmd: Sequence[str]) -> str:
     return " ".join(shlex.quote(part) for part in cmd)
 
 
-def run(cmd: Sequence[str], *, context: str | None = None) -> None:
+def run(
+    cmd: Sequence[str],
+    *,
+    context: str | None = None,
+    cwd: Path | str | None = None,
+    extra_env: Mapping[str, str] | None = None,
+) -> None:
     """Run a subprocess command and log stdout/stderr output."""
     command_str = _format_command(cmd)
+    if cwd:
+        command_str = f"(cd {shlex.quote(str(cwd))}) {command_str}"
     if context:
         LOGGER.info("%s", context)
     LOGGER.info("Executing: %s", command_str)
+
+    if extra_env:
+        merged_env = os.environ.copy()
+        merged_env.update(extra_env)
+    else:
+        merged_env = None
 
     try:
         result = subprocess.run(
@@ -110,6 +132,8 @@ def run(cmd: Sequence[str], *, context: str | None = None) -> None:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            cwd=str(cwd) if cwd else None,
+            env=merged_env,
         )
     except OSError as exc:
         LOGGER.exception("Failed to launch command: %s", command_str)
@@ -153,6 +177,84 @@ def verify_repository_access() -> None:
             "Repository check failed; aborting worker start until connectivity is fixed."
         )
         raise
+
+
+def sync_repository() -> None:
+    """Clone or update the repository into CODE_DIRECTORY."""
+    CODE_DIRECTORY.parent.mkdir(parents=True, exist_ok=True)
+
+    if not CODE_DIRECTORY.exists():
+        run(
+            [
+                "git",
+                "clone",
+                "--branch",
+                REPOSITORY_BRANCH,
+                "--depth",
+                "1",
+                REPOSITORY_URL,
+                str(CODE_DIRECTORY),
+            ],
+            context=f"Cloning repository into {CODE_DIRECTORY}.",
+        )
+    else:
+        run(
+            ["git", "fetch", "--tags", "--prune", "--prune-tags"],
+            context="Fetching latest changes.",
+            cwd=CODE_DIRECTORY,
+        )
+        run(
+            ["git", "reset", "--hard", f"origin/{REPOSITORY_BRANCH}"],
+            context=f"Resetting repository to origin/{REPOSITORY_BRANCH}.",
+            cwd=CODE_DIRECTORY,
+        )
+        run(
+            ["git", "clean", "-fdx"],
+            context="Removing untracked files after reset.",
+            cwd=CODE_DIRECTORY,
+        )
+
+    run(
+        ["git", "rev-parse", "HEAD"],
+        context="Repository HEAD after sync.",
+        cwd=CODE_DIRECTORY,
+    )
+
+
+def install_dependencies(python_exe: str) -> None:
+    """Install project dependencies after syncing the repository."""
+    if not INSTALL_REQUIREMENTS and not INSTALL_EDITABLE:
+        LOGGER.info("Skipping dependency installation step.")
+        return
+
+    if INSTALL_REQUIREMENTS:
+        requirements_path = CODE_DIRECTORY / REQUIREMENTS_FILE
+        if requirements_path.exists():
+            run(
+                [
+                    python_exe,
+                    "-m",
+                    "pip",
+                    "install",
+                    "--no-cache-dir",
+                    "-r",
+                    str(requirements_path),
+                ],
+                context=f"Installing requirements from {requirements_path}.",
+                cwd=CODE_DIRECTORY,
+            )
+        else:
+            LOGGER.warning(
+                "Requested requirements installation but %s not found.",
+                requirements_path,
+            )
+
+    if INSTALL_EDITABLE:
+        run(
+            [python_exe, "-m", "pip", "install", "--no-cache-dir", "-e", "."],
+            context="Installing project in editable mode.",
+            cwd=CODE_DIRECTORY,
+        )
 
 
 async def work_pool_has_active_runs() -> bool:
@@ -215,6 +317,17 @@ def main() -> None:
         LOGGER.info("Triggering deployments: %s", ", ".join(TRIGGER_DEPLOYMENTS))
 
     verify_repository_access()
+    sync_repository()
+    install_dependencies(python_exe)
+
+    existing_pythonpath = os.environ.get("PYTHONPATH")
+    new_pythonpath = (
+        f"{CODE_DIRECTORY}{os.pathsep}{existing_pythonpath}"
+        if existing_pythonpath
+        else str(CODE_DIRECTORY)
+    )
+    os.environ["PYTHONPATH"] = new_pythonpath
+    LOGGER.info("PYTHONPATH set to %s", new_pythonpath)
 
     run(
         [python_exe, "-m", "prefect", "work-pool", "resume", POOL_NAME],
