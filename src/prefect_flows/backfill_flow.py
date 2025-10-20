@@ -20,8 +20,8 @@ async def backfill_2025_flow(
     debate_limit: Optional[int] = None,
     committee_limit: Optional[int] = None,
     meetings_limit: Optional[int] = None,
-    parliament: Optional[int] = None,
-    session: Optional[int] = None,
+    parliament: Optional[int | str] = None,
+    session: Optional[int | str] = None,
     full: bool = True,
 ):
     """
