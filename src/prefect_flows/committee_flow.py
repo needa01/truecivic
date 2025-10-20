@@ -389,8 +389,8 @@ async def fetch_all_committees_flow(limit: int = 100) -> Dict[str, Any]:
 async def fetch_committee_meetings_flow(
     committee_identifiers: List[str],
     limit_per_committee: int = 50,
-    parliament: int = 44,
-    session: int = 1
+    parliament: Optional[int] = None,
+    session: Optional[int] = None
 ) -> Dict[str, Any]:
     """
     Flow to fetch meetings for multiple committees.
@@ -405,7 +405,13 @@ async def fetch_committee_meetings_flow(
         Dictionary with flow results
     """
     logger_flow = get_run_logger()
-    logger_flow.info(f"Starting fetch meetings flow for {len(committee_identifiers)} committees")
+    logger_flow.info(
+        "Starting fetch meetings flow for %s committees (parliament=%s, session=%s, limit=%s)",
+        len(committee_identifiers),
+        parliament,
+        session,
+        limit_per_committee,
+    )
     
     start_time = datetime.utcnow()
     
