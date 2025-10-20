@@ -7,7 +7,7 @@ WORKDIR /app
 
 # Install system dependencies required by Prefect pull steps (git clone)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends git && \
+    apt-get install -y --no-install-recommends git ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy the helper script used to manage the Prefect worker lifecycle

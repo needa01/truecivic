@@ -8,7 +8,9 @@ while sharing the same behaviour as scripts/prefect_worker_cycle.py.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
+import shlex
 import subprocess
 import sys
 import time
@@ -30,6 +32,22 @@ def getenv_bool(name: str, default: bool) -> bool:
     if value is None:
         return default
     return value.strip().lower() not in ("", "0", "false", "no", "off")
+
+
+def _resolve_log_level(name: str | None) -> int:
+    if not name:
+        return logging.INFO
+    level = getattr(logging, name.upper(), None)
+    if isinstance(level, int):
+        return level
+    return logging.INFO
+
+
+logging.basicConfig(
+    level=_resolve_log_level(os.getenv("PREFECT_WORKER_CYCLE_LOG_LEVEL")),
+    format="%(asctime)s %(levelname)s %(message)s",
+)
+LOGGER = logging.getLogger("prefect_worker_cycle")
 
 
 POOL_NAME = os.getenv("PREFECT_WORK_POOL", "default-agent-pool")
@@ -58,12 +76,40 @@ ACTIVE_STATE_TYPES = [
 AUTO_PAUSE = getenv_bool("PREFECT_AUTO_PAUSE", not RUN_FOREVER)
 
 
-def run(cmd: Sequence[str]) -> None:
-    """Run a subprocess command with inherited stdio."""
-    print(">>", " ".join(cmd), flush=True)
-    result = subprocess.run(cmd, check=False)
+def _format_command(cmd: Sequence[str]) -> str:
+    return " ".join(shlex.quote(part) for part in cmd)
+
+
+def run(cmd: Sequence[str], *, context: str | None = None) -> None:
+    """Run a subprocess command and log stdout/stderr output."""
+    command_str = _format_command(cmd)
+    if context:
+        LOGGER.info("%s", context)
+    LOGGER.info("Executing: %s", command_str)
+
+    try:
+        result = subprocess.run(
+            cmd,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except OSError as exc:
+        LOGGER.exception("Failed to launch command: %s", command_str)
+        raise RuntimeError(f"Unable to launch command: {command_str}") from exc
+
+    if result.stdout:
+        for line in result.stdout.splitlines():
+            LOGGER.info("[stdout] %s", line)
+    if result.stderr:
+        for line in result.stderr.splitlines():
+            LOGGER.error("[stderr] %s", line)
+
     if result.returncode != 0:
-        raise RuntimeError(f"Command failed ({result.returncode}): {' '.join(cmd)}")
+        raise RuntimeError(f"Command failed ({result.returncode}): {command_str}")
+
+    LOGGER.info("Command succeeded: %s", command_str)
 
 
 async def work_pool_has_active_runs() -> bool:
@@ -94,24 +140,41 @@ def wait_for_pool_to_be_idle() -> None:
     while True:
         has_runs = asyncio.run(work_pool_has_active_runs())
         if not has_runs:
-            print(">> Work pool idle; no active flow runs remaining.", flush=True)
+            LOGGER.info("Work pool idle; no active flow runs remaining.")
             return
 
         if deadline and time.monotonic() >= deadline:
-            print(">> Timeout waiting for flow runs to finish.", flush=True)
+            LOGGER.warning(
+                "Timeout waiting for flow runs to finish after %s seconds.",
+                WAIT_TIMEOUT,
+            )
             return
 
-        print(
-            f">> Active flow runs detected. Sleeping {WAIT_POLL_INTERVAL} seconds...",
-            flush=True,
+        LOGGER.info(
+            "Active flow runs detected. Sleeping %s seconds...", WAIT_POLL_INTERVAL
         )
         time.sleep(WAIT_POLL_INTERVAL)
 
 
 def main() -> None:
     python_exe = sys.executable
+    LOGGER.info(
+        "Worker configuration pool=%s name=%s type=%s run_forever=%s prefetch=%s limit=%s auto_pause=%s",
+        POOL_NAME,
+        WORKER_NAME,
+        WORKER_TYPE,
+        RUN_FOREVER,
+        PREFETCH_SECONDS,
+        CONCURRENCY_LIMIT,
+        AUTO_PAUSE,
+    )
+    if TRIGGER_DEPLOYMENTS:
+        LOGGER.info("Triggering deployments: %s", ", ".join(TRIGGER_DEPLOYMENTS))
 
-    run([python_exe, "-m", "prefect", "work-pool", "resume", POOL_NAME])
+    run(
+        [python_exe, "-m", "prefect", "work-pool", "resume", POOL_NAME],
+        context="Resuming work pool prior to worker start.",
+    )
 
     if TRIGGER_DEPLOYMENTS:
         for deployment in TRIGGER_DEPLOYMENTS:
@@ -123,7 +186,8 @@ def main() -> None:
                     "deployment",
                     "run",
                     deployment,
-                ]
+                ],
+                context=f"Triggering deployment {deployment}",
             )
 
     worker_cmd = [
@@ -147,12 +211,19 @@ def main() -> None:
         worker_cmd.insert(worker_cmd.index("--prefetch-seconds"), "--run-once")
 
     try:
-        run(worker_cmd)
+        run(worker_cmd, context="Starting Prefect worker.")
         wait_for_pool_to_be_idle()
     finally:
         if AUTO_PAUSE:
-            run([python_exe, "-m", "prefect", "work-pool", "pause", POOL_NAME])
+            run(
+                [python_exe, "-m", "prefect", "work-pool", "pause", POOL_NAME],
+                context="Pausing work pool after worker cycle.",
+            )
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:  # pragma: no cover - defensive logging
+        LOGGER.exception("Prefect worker cycle failed: %s", exc)
+        sys.exit(1)
