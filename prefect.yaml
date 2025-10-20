@@ -11,7 +11,7 @@ build: null
 # Pull configuration (for retrieving flow code)
 pull:
   - prefect.deployments.steps.set_working_directory:
-      directory: "{{ env.TRUECIVIC_CODE_DIR | default('/opt/truecivic') }}"
+      directory: "/opt/truecivic"
 
 # Push configuration (for storing flow code)
 push: null

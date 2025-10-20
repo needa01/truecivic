@@ -16,9 +16,9 @@ pending flow runs on-demand without keeping a long-lived worker online.
 
 Set these variables in the Railway service before enabling the cron schedule:
 
-- `PREFECT_API_URL` – Prefect API endpoint
-- `PREFECT_API_KEY` *(optional)* – Required only when talking to Prefect Cloud
-- `GITHUB_ACCESS_TOKEN` *(optional)* – Personal access token for cloning if the
+- `PREFECT_API_URL` — Prefect API endpoint
+- `PREFECT_API_KEY` *(optional)* — Required only when talking to Prefect Cloud
+- `GITHUB_ACCESS_TOKEN` *(optional)* — Personal access token for cloning if the
   repository is private or to avoid GitHub rate limits
 - `PREFECT_TRIGGER_DEPLOYMENTS` *(optional)* – Comma-separated list of
   deployment names to kick off before the worker starts
@@ -45,6 +45,10 @@ Set these variables in the Railway service before enabling the cron schedule:
 - `TRUECIVIC_INSTALL_REQUIREMENTS` *(optional, default `true`)* - Install `requirements.txt` after syncing
 - `TRUECIVIC_REQUIREMENTS_FILE` *(optional, default `requirements.txt`)* - Override the requirements file path
 - `TRUECIVIC_INSTALL_EDITABLE` *(optional, default `false`)* - Install the project in editable mode (`pip install -e .`)
+
+All Prefect deployments assume the code lives at `/opt/truecivic`. Update
+`TRUECIVIC_CODE_DIR` (and the deployments’ set_working_directory paths) if you
+need a different location.
 
 The script resumes the pool, launches a `--run-once` worker to drain scheduled
 runs, waits for active runs to finish, and then (by default) pauses the pool so
