@@ -70,7 +70,10 @@ class OpenParliamentVotesAdapter(BaseAdapter[Dict[str, Any]]):
         if parliament:
             params["parliament"] = parliament
         if session:
-            params["session"] = session
+            if isinstance(session, int) and parliament:
+                params["session"] = f"{parliament}-{session}"
+            else:
+                params["session"] = session
         if bill:
             params["bill"] = bill
 
@@ -152,27 +155,56 @@ class OpenParliamentVotesAdapter(BaseAdapter[Dict[str, Any]]):
 
     def normalize(self, raw_data: Dict[str, Any]) -> Dict[str, Any]:
         """Normalize vote summary payload."""
-        vote_number = raw_data.get("number", "")
-        parliament = None
-        session = None
-        vote_sequence = None
-        if vote_number:
-            parts = vote_number.split("-")
-            if len(parts) >= 1:
-                try:
-                    parliament = int(parts[0])
-                except ValueError:
-                    parliament = None
-            if len(parts) >= 2:
-                try:
-                    session = int(parts[1])
-                except ValueError:
-                    session = None
-            if len(parts) >= 3:
-                try:
-                    vote_sequence = int(parts[2])
-                except ValueError:
-                    vote_sequence = None
+        raw_number = raw_data.get("number")
+        raw_session = raw_data.get("session")
+        raw_url = raw_data.get("url")
+
+        vote_id: Optional[str] = None
+        parliament: Optional[int] = None
+        session: Optional[int] = None
+        vote_sequence: Optional[int] = None
+
+        if isinstance(raw_number, str):
+            parts = raw_number.split("-")
+            if len(parts) >= 1 and parts[0].isdigit():
+                parliament = int(parts[0])
+            if len(parts) >= 2 and parts[1].isdigit():
+                session = int(parts[1])
+            if len(parts) >= 3 and parts[2].isdigit():
+                vote_sequence = int(parts[2])
+            vote_id = raw_number
+        elif isinstance(raw_number, int):
+            vote_sequence = raw_number
+
+        if isinstance(raw_session, str):
+            session_parts = raw_session.split("-")
+            if len(session_parts) >= 1 and session_parts[0].isdigit():
+                parliament = parliament or int(session_parts[0])
+            if len(session_parts) >= 2 and session_parts[1].isdigit():
+                session = int(session_parts[1])
+            if vote_sequence is not None:
+                vote_id = vote_id or f"{raw_session}-{vote_sequence}"
+            else:
+                vote_id = vote_id or raw_session
+
+        if vote_id is None and isinstance(raw_url, str):
+            segments = [segment for segment in raw_url.strip("/").split("/") if segment]
+            if len(segments) >= 3 and segments[0] == "votes":
+                session_token = segments[1]
+                sequence_token = segments[2]
+                vote_id = f"{session_token}-{sequence_token}"
+                session_parts = session_token.split("-")
+                if len(session_parts) >= 1 and session_parts[0].isdigit():
+                    parliament = parliament or int(session_parts[0])
+                if len(session_parts) >= 2 and session_parts[1].isdigit():
+                    session = session or int(session_parts[1])
+                if vote_sequence is None and sequence_token.isdigit():
+                    vote_sequence = int(sequence_token)
+
+        if vote_sequence is None and isinstance(raw_number, str) and raw_number.isdigit():
+            vote_sequence = int(raw_number)
+
+        vote_id = vote_id or (str(raw_number) if raw_number is not None else None)
 
         bill_number = None
         bill_payload = raw_data.get("bill")
@@ -183,7 +215,7 @@ class OpenParliamentVotesAdapter(BaseAdapter[Dict[str, Any]]):
 
         return {
             "jurisdiction": "ca",
-            "vote_id": vote_number,
+            "vote_id": vote_id,
             "parliament": parliament,
             "session": session,
             "vote_number": vote_sequence,

@@ -90,6 +90,8 @@ deployments:
       debate_limit: null
       committee_limit: null
       meetings_limit: null
+      parliament: null
+      session: null
       full: true
     tags:
       - backfill

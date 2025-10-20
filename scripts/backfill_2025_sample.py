@@ -16,7 +16,7 @@ import asyncio
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 
@@ -45,10 +45,9 @@ load_dotenv(".env.production")
 START_2025 = datetime(2025, 1, 1)
 END_2025 = datetime(2025, 12, 31, 23, 59, 59)
 
-# The 44th Parliament entered its second session in September 2023 and remains
-# active through 2025. Adjust these if Parliament numbers change.
-PARLIAMENT = 44
-SESSION = 2
+# Parliament and session defaults can be overridden via CLI flags or Prefect parameters.
+PARLIAMENT_DEFAULT = 45
+SESSION_DEFAULT: Optional[int] = None
 
 SAMPLE_LIMITS = {
     "bills": 10,
@@ -145,6 +144,12 @@ async def backfill_2025(args: argparse.Namespace) -> Dict[str, Any]:
     results: Dict[str, Any] = {}
     full_run = bool(getattr(args, "full", False))
 
+    parliament = getattr(args, "parliament", None)
+    if parliament is None:
+        parliament = PARLIAMENT_DEFAULT
+
+    session = getattr(args, "session", SESSION_DEFAULT)
+
     # Bills (limit to 2025 introductions)
     bill_limit = _resolve_limit(args.bill_limit, full_run=full_run, domain="bills")
     results["bills"] = await fetch_bills_flow(
@@ -158,8 +163,8 @@ async def backfill_2025(args: argparse.Namespace) -> Dict[str, Any]:
     # Votes (limit to 2025 vote dates)
     vote_limit = _resolve_limit(args.vote_limit, full_run=full_run, domain="votes")
     results["votes"] = await fetch_votes_with_records_flow(
-        parliament=PARLIAMENT,
-        session=SESSION,
+        parliament=parliament,
+        session=session,
         limit=vote_limit,
         fetch_records=True,
         start_date=START_2025,
@@ -169,8 +174,8 @@ async def backfill_2025(args: argparse.Namespace) -> Dict[str, Any]:
     debate_limit = _resolve_limit(args.debate_limit, full_run=full_run, domain="debates")
     results["debates"] = await fetch_debates_with_speeches_flow(
         limit=debate_limit,
-        parliament=PARLIAMENT,
-        session=SESSION,
+        parliament=parliament,
+        session=session,
     )
 
     # The helper flow above stores debates. We can optionally sweep a smaller
@@ -198,8 +203,8 @@ async def backfill_2025(args: argparse.Namespace) -> Dict[str, Any]:
     results["committee_meetings"] = await fetch_committee_meetings_flow(
         committee_identifiers=committee_targets,
         limit_per_committee=meeting_limit,
-        parliament=PARLIAMENT,
-        session=SESSION,
+        parliament=parliament,
+        session=session,
     )
     # Annotate with the number of committees requested for transparency.
     if isinstance(results["committee_meetings"], dict):
@@ -216,12 +221,15 @@ def _format_summary(results: Dict[str, Any]) -> str:
     lines: List[str] = []
     lines.append("\n=== 2025 SAMPLE BACKFILL SUMMARY ===")
     for domain, payload in results.items():
-        status = payload.get("status", "unknown")
-        counts = [
-            f"{k}={v}"
-            for k, v in payload.items()
-            if isinstance(v, (int, float)) and k.endswith(("fetched", "stored", "created", "updated"))
-        ]
+        status = "unknown"
+        counts: List[str] = []
+        if isinstance(payload, dict):
+            status = payload.get("status", "unknown")
+            counts = [
+                f"{k}={v}"
+                for k, v in payload.items()
+                if isinstance(v, (int, float)) and k.endswith(("fetched", "stored", "created", "updated"))
+            ]
         lines.append(f"- {domain}: {status} {'; '.join(counts)}")
     lines.append("====================================\n")
     return "\n".join(lines)
@@ -240,6 +248,18 @@ async def main() -> None:
         type=int,
         default=None,
         help="Number of meetings per committee to fetch",
+    )
+    parser.add_argument(
+        "--parliament",
+        type=int,
+        default=None,
+        help=f"Parliament number to target (default: {PARLIAMENT_DEFAULT})",
+    )
+    parser.add_argument(
+        "--session",
+        type=int,
+        default=None,
+        help="Session number to target (default: auto/all sessions).",
     )
     parser.add_argument(
         "--full",

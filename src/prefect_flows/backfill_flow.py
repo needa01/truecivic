@@ -19,6 +19,8 @@ async def backfill_2025_flow(
     debate_limit: int | None = None,
     committee_limit: int | None = None,
     meetings_limit: int | None = None,
+    parliament: int | None = None,
+    session: int | None = None,
     full: bool = True,
 ):
     """
@@ -32,6 +34,8 @@ async def backfill_2025_flow(
         debate_limit=debate_limit,
         committee_limit=committee_limit,
         meetings_limit=meetings_limit,
+        parliament=parliament,
+        session=session,
         full=full,
     )
     return await backfill_2025(args)

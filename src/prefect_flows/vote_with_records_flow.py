@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 @task(name="fetch_votes_batch", retries=2, retry_delay_seconds=30)
 async def fetch_votes_batch_task(
     parliament: int,
-    session: int,
+    session: Optional[int],
     limit: int = 100,
     start_date: Optional[datetime] = None,
 ) -> List[Dict[str, Any]]:
@@ -35,14 +35,15 @@ async def fetch_votes_batch_task(
     
     Args:
         parliament: Parliament number
-        session: Session number
+        session: Session number (optional)
         limit: Maximum votes to fetch
         
     Returns:
         List of vote dictionaries
     """
     logger_task = get_run_logger()
-    logger_task.info(f"Fetching votes for Parliament {parliament}, Session {session}")
+    session_label = f"{parliament}-{session}" if session is not None else f"{parliament}-all"
+    logger_task.info(f"Fetching votes for Parliament/Session {session_label}")
     
     adapter = OpenParliamentVotesAdapter()
     response = await adapter.fetch(
@@ -282,8 +283,8 @@ async def get_vote_db_id_task(jurisdiction: str, vote_id: str) -> int:
     log_prints=True
 )
 async def fetch_votes_with_records_flow(
-    parliament: int = 44,
-    session: int = 1,
+    parliament: int = 45,
+    session: Optional[int] = None,
     limit: int = 100,
     fetch_records: bool = True,
     start_date: Optional[datetime] = None,
@@ -292,8 +293,8 @@ async def fetch_votes_with_records_flow(
     Main flow to fetch and store votes with optional individual MP records.
     
     Args:
-        parliament: Parliament number (default: 44)
-        session: Session number (default: 1)
+        parliament: Parliament number (default: 45)
+        session: Session number (default: all sessions)
         limit: Maximum votes to fetch (default: 100)
         fetch_records: Whether to fetch individual MP voting records (default: True)
         start_date: Earliest vote date to include (defaults to 10-year window)
@@ -302,7 +303,8 @@ async def fetch_votes_with_records_flow(
         Dictionary with flow results
     """
     logger_flow = get_run_logger()
-    logger_flow.info(f"Starting votes+records flow for {parliament}-{session}")
+    session_label = f"{parliament}-{session}" if session is not None else f"{parliament}-all"
+    logger_flow.info(f"Starting votes+records flow for {session_label}")
     
     start_time = datetime.utcnow()
     

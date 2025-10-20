@@ -59,7 +59,10 @@ class OpenParliamentDebatesAdapter(BaseAdapter[Dict[str, Any]]):
         if parliament:
             params["parliament"] = parliament
         if session:
-            params["session"] = session
+            if isinstance(session, int) and parliament:
+                params["session"] = f"{parliament}-{session}"
+            else:
+                params["session"] = session
 
         fetched = 0
 
