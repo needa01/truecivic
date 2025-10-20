@@ -145,10 +145,16 @@ async def backfill_2025(args: argparse.Namespace) -> Dict[str, Any]:
     full_run = bool(getattr(args, "full", False))
 
     parliament = getattr(args, "parliament", None)
+    if isinstance(parliament, str):
+        cleaned = parliament.strip()
+        parliament = int(cleaned) if cleaned.isdigit() else None
     if parliament is None:
         parliament = PARLIAMENT_DEFAULT
 
     session = getattr(args, "session", SESSION_DEFAULT)
+    if isinstance(session, str):
+        cleaned = session.strip()
+        session = int(cleaned) if cleaned.isdigit() else None
 
     # Bills (limit to 2025 introductions)
     bill_limit = _resolve_limit(args.bill_limit, full_run=full_run, domain="bills")

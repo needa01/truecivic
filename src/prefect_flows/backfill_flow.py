@@ -6,6 +6,7 @@ Prefect Cloud / Railway workers with custom limits.
 """
 
 from argparse import Namespace
+from typing import Optional
 
 from prefect import flow
 
@@ -14,13 +15,13 @@ from scripts.backfill_2025_sample import backfill_2025
 
 @flow(name="backfill-2025")
 async def backfill_2025_flow(
-    bill_limit: int | None = None,
-    vote_limit: int | None = None,
-    debate_limit: int | None = None,
-    committee_limit: int | None = None,
-    meetings_limit: int | None = None,
-    parliament: int | None = None,
-    session: int | None = None,
+    bill_limit: Optional[int] = None,
+    vote_limit: Optional[int] = None,
+    debate_limit: Optional[int] = None,
+    committee_limit: Optional[int] = None,
+    meetings_limit: Optional[int] = None,
+    parliament: Optional[int] = None,
+    session: Optional[int] = None,
     full: bool = True,
 ):
     """
