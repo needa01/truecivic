@@ -26,18 +26,21 @@ Set these variables in the Railway service before enabling the cron schedule:
 - `PREFECT_WORKER_NAME` *(optional)* – Worker name shown in Prefect UI/logs
 - `PREFECT_WORKER_TYPE` *(optional)* – Worker type (`process`, `docker`, etc.)
 - `PREFECT_WORKER_PREFETCH_SECONDS` *(optional)* – How far ahead to prefetch
-- `PREFECT_WORKER_FLOW_LIMIT` *(optional)* – Max simultaneous flow runs
-- `PREFECT_WORKER_RUN_FOREVER` *(optional, default `false`)* – When `true`,
+- `PREFECT_WORKER_FLOW_LIMIT` *(optional)* - Max simultaneous flow runs
+- `PREFECT_WORKER_RUN_FOREVER` *(optional, default `false`)* - When `true`,
   keeps the worker online until the container stops (no auto-pause)
-- `PREFECT_WAIT_FOR_COMPLETION` *(optional, default `true`)* – Wait until the
+- `PREFECT_WAIT_FOR_COMPLETION` *(optional, default `true`)* - Wait until the
   pool has no flow runs in active states before exiting
 - `PREFECT_WAIT_TIMEOUT_SECONDS` *(optional)* – Give up waiting after this many
   seconds (0 = no timeout)
 - `PREFECT_WAIT_POLL_SECONDS` *(optional)* – Poll interval while waiting
-- `PREFECT_ACTIVE_STATE_TYPES` *(optional)* – Comma-separated flow-run state
+- `PREFECT_ACTIVE_STATE_TYPES` *(optional)* - Comma-separated flow-run state
   types to treat as "active" (defaults to `PENDING,RUNNING`)
-- `PREFECT_AUTO_PAUSE` *(optional, default `true`)* – Pause the work pool once
+- `PREFECT_AUTO_PAUSE` *(optional, default `true`)* - Pause the work pool once
   the cycle completes
+- `PREFECT_WORKER_REPOSITORY` *(optional, default `https://github.com/monuit/truecivic.git`)* - Repository to preflight before starting the worker
+- `PREFECT_WORKER_BRANCH` *(optional, default `main`)* - Branch to check during repository preflight
+- `PREFECT_WORKER_VERIFY_REPOSITORY` *(optional, default `true`)* - Disable to skip the preflight git connectivity check
 
 The script resumes the pool, launches a `--run-once` worker to drain scheduled
 runs, waits for active runs to finish, and then (by default) pauses the pool so

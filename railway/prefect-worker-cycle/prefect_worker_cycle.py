@@ -43,11 +43,22 @@ def _resolve_log_level(name: str | None) -> int:
     return logging.INFO
 
 
-logging.basicConfig(
-    level=_resolve_log_level(os.getenv("PREFECT_WORKER_CYCLE_LOG_LEVEL")),
-    format="%(asctime)s %(levelname)s %(message)s",
-)
-LOGGER = logging.getLogger("prefect_worker_cycle")
+def _configure_logger() -> logging.Logger:
+    level = _resolve_log_level(os.getenv("PREFECT_WORKER_CYCLE_LOG_LEVEL"))
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+    handler = logging.StreamHandler()
+    handler.setFormatter(formatter)
+
+    root_logger = logging.getLogger()
+    root_logger.handlers.clear()
+    root_logger.addHandler(handler)
+    root_logger.setLevel(level)
+
+    logging.captureWarnings(True)
+    return logging.getLogger("prefect_worker_cycle")
+
+
+LOGGER = _configure_logger()
 
 
 POOL_NAME = os.getenv("PREFECT_WORK_POOL", "default-agent-pool")
@@ -74,6 +85,11 @@ ACTIVE_STATE_TYPES = [
     if state.strip()
 ]
 AUTO_PAUSE = getenv_bool("PREFECT_AUTO_PAUSE", not RUN_FOREVER)
+REPOSITORY_URL = os.getenv(
+    "PREFECT_WORKER_REPOSITORY", "https://github.com/monuit/truecivic.git"
+)
+REPOSITORY_BRANCH = os.getenv("PREFECT_WORKER_BRANCH", "main")
+VERIFY_REPOSITORY = getenv_bool("PREFECT_WORKER_VERIFY_REPOSITORY", True)
 
 
 def _format_command(cmd: Sequence[str]) -> str:
@@ -110,6 +126,33 @@ def run(cmd: Sequence[str], *, context: str | None = None) -> None:
         raise RuntimeError(f"Command failed ({result.returncode}): {command_str}")
 
     LOGGER.info("Command succeeded: %s", command_str)
+
+
+def verify_repository_access() -> None:
+    """Ensure the worker can reach the configured git repository before starting."""
+    if not VERIFY_REPOSITORY:
+        LOGGER.info("Skipping repository connectivity check.")
+        return
+
+    context = (
+        f"Checking git repository reachability ({REPOSITORY_URL} @ {REPOSITORY_BRANCH})."
+    )
+    try:
+        run(
+            [
+                "git",
+                "ls-remote",
+                "--heads",
+                REPOSITORY_URL,
+                REPOSITORY_BRANCH,
+            ],
+            context=context,
+        )
+    except RuntimeError:
+        LOGGER.error(
+            "Repository check failed; aborting worker start until connectivity is fixed."
+        )
+        raise
 
 
 async def work_pool_has_active_runs() -> bool:
@@ -170,6 +213,8 @@ def main() -> None:
     )
     if TRIGGER_DEPLOYMENTS:
         LOGGER.info("Triggering deployments: %s", ", ".join(TRIGGER_DEPLOYMENTS))
+
+    verify_repository_access()
 
     run(
         [python_exe, "-m", "prefect", "work-pool", "resume", POOL_NAME],
