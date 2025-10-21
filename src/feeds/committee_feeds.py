@@ -7,12 +7,16 @@ Responsibility: Generate RSS/Atom feeds for committee meetings and reports
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, Dict
+import logging
+
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .feed_builder import FeedBuilder, GuidBuilder, FeedFormat
-from ..db.models import CommitteeModel, BillModel
+from ..db.models import CommitteeModel, BillModel, CommitteeMeetingModel
+
+logger = logging.getLogger(__name__)
 
 
 class CommitteeFeedBuilder(FeedBuilder):
@@ -109,11 +113,7 @@ class CommitteeFeedBuilder(FeedBuilder):
     ) -> str:
         """
         Build feed from database for committee activity.
-        
-        Note: Currently a placeholder as committee_meetings and committee_reports
-        tables don't exist yet. This will be implemented when Phase D adapters
-        are complete.
-        
+
         Args:
             db: Database session
             limit: Max entries
@@ -121,10 +121,62 @@ class CommitteeFeedBuilder(FeedBuilder):
         Returns:
             RSS/Atom feed XML
         """
-        # Placeholder: Once committee_meetings and committee_reports tables exist,
-        # query them here
-        
-        # For now, return empty feed with just committee info
+        stmt = (
+            select(CommitteeMeetingModel)
+            .where(CommitteeMeetingModel.committee_id == self.committee_id)
+            .order_by(CommitteeMeetingModel.meeting_date.desc(), CommitteeMeetingModel.id.desc())
+            .limit(limit)
+        )
+        result = await db.execute(stmt)
+        meetings: List[CommitteeMeetingModel] = list(result.scalars().all())
+
+        seen_ids = set()
+        for meeting in meetings:
+            if meeting.id in seen_ids:
+                logger.warning(
+                    "Skipping duplicate committee meeting id=%s for committee_id=%s",
+                    meeting.id,
+                    self.committee_id,
+                )
+                continue
+            seen_ids.add(meeting.id)
+
+            meeting_date = meeting.meeting_date
+            if isinstance(meeting_date, str):
+                try:
+                    meeting_date = datetime.fromisoformat(meeting_date)
+                except ValueError:
+                    meeting_date = datetime.utcnow()
+
+            title = meeting.title_en or meeting.title_fr or f"Meeting {meeting.meeting_number}"
+
+            description_parts: List[str] = []
+            if meeting.meeting_type:
+                description_parts.append(f"Type: {meeting.meeting_type}")
+            if meeting.time_of_day:
+                description_parts.append(f"Time: {meeting.time_of_day}")
+            if meeting.room:
+                description_parts.append(f"Room: {meeting.room}")
+            description = " ".join(description_parts) if description_parts else None
+
+            witnesses_summary = None
+            if isinstance(meeting.witnesses, dict):
+                names = {w.get("name") for w in meeting.witnesses.get("witnesses", []) if w.get("name")}
+                if names:
+                    witnesses_summary = ", ".join(sorted(names))
+            elif isinstance(meeting.witnesses, list):
+                names = {w.get("name") for w in meeting.witnesses if isinstance(w, dict) and w.get("name")}
+                if names:
+                    witnesses_summary = ", ".join(sorted(names))
+
+            self.add_meeting_entry(
+                meeting_id=meeting.id,
+                meeting_date=meeting_date if isinstance(meeting_date, datetime) else datetime.utcnow(),
+                title=title,
+                description=description,
+                witnesses=witnesses_summary,
+            )
+
         return self.build_xml(format=FeedFormat.RSS)
 
 
