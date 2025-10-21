@@ -428,13 +428,22 @@ class CommitteeModel(Base):
     __tablename__ = "committees"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    natural_id: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
     jurisdiction: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    parliament: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    session: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     committee_code: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     committee_slug: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    acronym_en: Mapped[str] = mapped_column(String(50), nullable=False)
+    acronym_fr: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     source_slug: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     name_en: Mapped[str] = mapped_column(String(200), nullable=False)
     name_fr: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    short_name_en: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    short_name_fr: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     chamber: Mapped[str] = mapped_column(String(50), nullable=False)
+    parent_committee: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    source_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     committee_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     website_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     
@@ -448,7 +457,10 @@ class CommitteeModel(Base):
     )
     
     def __repr__(self) -> str:
-        return f"<CommitteeModel(id={self.id}, slug={self.committee_slug}, code={self.committee_code})>"
+        return (
+            f"<CommitteeModel(id={self.id}, natural_id={self.natural_id}, "
+            f"slug={self.committee_slug}, code={self.committee_code})>"
+        )
 
 
 class DebateModel(Base):
