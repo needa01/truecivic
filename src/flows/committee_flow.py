@@ -89,6 +89,8 @@ async def store_committees_task(committees: List[CommitteeData]) -> int:
         repository = CommitteeRepository(session)
         payloads: List[Dict[str, Any]] = []
 
+        canonical_jurisdiction = "ca-federal"
+
         for committee_data in committees:
             try:
                 identifier_seed = (
@@ -99,18 +101,55 @@ async def store_committees_task(committees: List[CommitteeData]) -> int:
                 )
                 identifier = build_committee_identifier(identifier_seed)
 
+                parliament = committee_data.parliament
+                session = committee_data.session
+
+                if parliament is None or session is None:
+                    raise ValueError("Committee payload missing parliament/session metadata")
+
                 name_en = committee_data.name_en or identifier.code
+                name_fr = committee_data.name_fr or name_en
                 source_slug = committee_data.source_slug or identifier.source_slug
+                source_url = committee_data.source_url
+
+                parliament_value = int(parliament)
+                session_value = int(session)
+
+                if not source_url and source_slug:
+                    source_url = f"https://api.openparliament.ca/committees/{source_slug}/"
+                if not source_url:
+                    source_url = (
+                        f"https://www.ourcommons.ca/Committees/en/{identifier.code}"
+                        f"?parl={parliament_value}&session={session_value}"
+                    )
+
+                acronym_en = (committee_data.acronym_en or identifier.code).upper()
+                acronym_fr = (committee_data.acronym_fr or acronym_en).upper()
+                short_name_en = committee_data.short_name_en or name_en
+                short_name_fr = committee_data.short_name_fr or name_fr or short_name_en
+
+                natural_id = (
+                    f"{canonical_jurisdiction}-{parliament_value}-{session_value}-committee-{identifier.code}"
+                )
 
                 payloads.append(
                     {
-                        "jurisdiction": "ca",
+                        "natural_id": natural_id,
+                        "jurisdiction": canonical_jurisdiction,
+                        "parliament": parliament_value,
+                        "session": session_value,
                         "committee_code": identifier.code,
                         "committee_slug": identifier.internal_slug,
                         "source_slug": source_slug,
                         "name_en": name_en,
-                        "name_fr": committee_data.name_fr,
+                        "name_fr": name_fr,
                         "chamber": committee_data.chamber or "House",
+                        "acronym_en": acronym_en,
+                        "acronym_fr": acronym_fr,
+                        "short_name_en": short_name_en,
+                        "short_name_fr": short_name_fr,
+                        "parent_committee": committee_data.parent_committee,
+                        "source_url": source_url,
                         "committee_type": None,
                         "website_url": None,
                     }
