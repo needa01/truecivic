@@ -4,7 +4,7 @@ Committee Pydantic models for API responses.
 These models define the shape of data returned by the committee API endpoints.
 """
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 
 
@@ -67,3 +67,57 @@ class CommitteeList(BaseModel):
                 "limit": 100
             }
         }
+
+
+class CommitteeMeeting(BaseModel):
+    """Committee meeting details."""
+    id: int = Field(description="Meeting database identifier")
+    committee_id: int = Field(description="ID of the committee this meeting belongs to")
+    committee_slug: str = Field(description="Jurisdiction-prefixed committee slug")
+    meeting_number: int = Field(description="Sequential meeting number within the committee")
+    parliament: int = Field(description="Parliament number")
+    session: int = Field(description="Session number")
+    meeting_date: datetime = Field(description="Meeting date and time")
+    time_of_day: Optional[str] = Field(None, description="Time of day (morning, afternoon, etc.)")
+    title_en: Optional[str] = Field(None, description="English meeting title")
+    title_fr: Optional[str] = Field(None, description="French meeting title")
+    meeting_type: Optional[str] = Field(None, description="Meeting type (e.g., Regular, Special)")
+    room: Optional[str] = Field(None, description="Meeting room location")
+    witnesses: Optional[List[Dict[str, Any]]] = Field(None, description="Witness list metadata")
+    documents: Optional[List[Dict[str, Any]]] = Field(None, description="Associated document metadata")
+    source_url: Optional[str] = Field(None, description="Source URL for the meeting")
+    created_at: datetime = Field(description="When this meeting was created in the system")
+    updated_at: datetime = Field(description="When this meeting was last updated in the system")
+
+    class Config:
+        from_attributes = True
+        json_schema_extra = {
+            "example": {
+                "id": 123,
+                "committee_id": 456,
+                "committee_slug": "ca-HUMA",
+                "meeting_number": 87,
+                "parliament": 44,
+                "session": 1,
+                "meeting_date": "2025-02-15T14:00:00Z",
+                "time_of_day": "Afternoon",
+                "title_en": "Human Resources Committee",
+                "title_fr": "Comité des ressources humaines",
+                "meeting_type": "Regular",
+                "room": "Room 237-C, West Block",
+                "witnesses": [{"name": "Jane Doe", "organization": "Labour Council"}],
+                "documents": [{"title": "Briefing Note", "url": "https://example.com/doc.pdf"}],
+                "source_url": "https://api.openparliament.ca/committees/HUMA/meetings/87/",
+                "created_at": "2025-02-15T16:30:00Z",
+                "updated_at": "2025-02-15T16:35:00Z"
+            }
+        }
+
+
+class CommitteeMeetingList(BaseModel):
+    """Paginated list of committee meetings for a committee."""
+    committee: Committee = Field(description="Committee metadata")
+    meetings: List[CommitteeMeeting] = Field(description="List of committee meetings")
+    total: int = Field(description="Total number of meetings matching the query")
+    skip: int = Field(description="Number of records skipped")
+    limit: int = Field(description="Maximum number of records returned")

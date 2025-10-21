@@ -108,6 +108,15 @@ class CommitteeRepository:
             select(CommitteeModel).where(CommitteeModel.committee_slug == normalized_slug)
         )
         return result.scalar_one_or_none()
+
+    async def get_by_natural_id(self, natural_id: str) -> Optional[CommitteeModel]:
+        """
+        Fetch a committee by its natural identifier.
+        """
+        result = await self.session.execute(
+            select(CommitteeModel).where(CommitteeModel.natural_id == natural_id)
+        )
+        return result.scalar_one_or_none()
     
     async def get_all(
         self,

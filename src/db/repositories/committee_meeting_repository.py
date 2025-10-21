@@ -9,7 +9,7 @@ Responsibility: Database access layer for committee_meetings table
 import logging
 from typing import List, Optional, Dict, Any
 from datetime import datetime
-from sqlalchemy import select, and_, or_, desc
+from sqlalchemy import select, and_, or_, desc, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -263,7 +263,6 @@ class CommitteeMeetingRepository:
         Returns:
             Number of meetings
         """
-        from sqlalchemy import func
         stmt = select(func.count()).select_from(CommitteeMeetingModel).where(
             CommitteeMeetingModel.committee_id == committee_id
         )
