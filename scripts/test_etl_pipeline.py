@@ -23,6 +23,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from dotenv import load_dotenv
+
+# Load environment variables before importing project modules
+load_dotenv(".env.production")
+
 import asyncpg
 import redis.asyncio as aioredis
 from rich.console import Console
@@ -32,9 +36,6 @@ from rich import print as rprint
 
 from src.prefect_flows.bill_flows import fetch_latest_bills_flow
 from src.db.session import Database
-
-# Load environment variables
-load_dotenv(".env.production")
 
 console = Console()
 

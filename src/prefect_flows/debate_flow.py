@@ -214,7 +214,7 @@ async def store_debates_task(debates_data: List[Dict[str, Any]]) -> Dict[str, An
 
     except Exception as exc:
         logger_task.error("Error storing debates: %s", exc, exc_info=True)
-        return {"stored": 0, "url_to_id": {}, "hansard_to_id": {}, "error": str(exc)}
+        raise
 
 
 @task(name="store_speeches", retries=1)
@@ -382,7 +382,7 @@ async def store_speeches_task(
 
     except Exception as exc:
         logger_task.error("Error storing speeches: %s", exc, exc_info=True)
-        return {"stored": 0, "documents": 0, "embeddings": 0, "error": str(exc)}
+        raise
 
 
 @task(name="fetch_debates_batch_with_speeches", retries=1)

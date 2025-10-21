@@ -23,6 +23,9 @@ import httpx
 
 from dotenv import load_dotenv
 
+# Ensure database credentials / API keys are loaded before importing project modules
+load_dotenv(".env.production")
+
 # Ensure local imports resolve when running as a script
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
@@ -40,10 +43,6 @@ from src.prefect_flows.committee_flow import (
 from src.prefect_flows.politician_flow import fetch_politicians_flow
 from src.db.session import async_session_factory
 from src.db.repositories.committee_repository import CommitteeRepository
-
-
-# Ensure database credentials / API keys are loaded when run locally
-load_dotenv(".env.production")
 
 
 START_2025 = datetime(2025, 1, 1)

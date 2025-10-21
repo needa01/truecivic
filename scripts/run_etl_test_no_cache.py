@@ -19,14 +19,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from dotenv import load_dotenv
+
+# Ensure environment variables are loaded before project imports
+load_dotenv(".env.production")
+
 import asyncpg
 from rich.console import Console
 from rich.panel import Panel
 
 from src.db.session import Database
 from src.services.bill_integration_service import BillIntegrationService
-
-load_dotenv(".env.production")
 
 console = Console()
 

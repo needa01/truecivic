@@ -142,7 +142,43 @@ class DebateRepository:
         data.setdefault("created_at", timestamp)
         data["updated_at"] = timestamp
 
-        return data
+        allowed_fields = {
+            "jurisdiction",
+            "hansard_id",
+            "parliament",
+            "session",
+            "sitting_date",
+            "chamber",
+            "debate_type",
+            "document_url",
+            "created_at",
+            "updated_at",
+        }
+
+        normalized: Dict[str, Any] = {
+            key: data[key]
+            for key in allowed_fields
+            if key in data and data[key] is not None
+        }
+
+        required_fields = {
+            "jurisdiction",
+            "hansard_id",
+            "parliament",
+            "session",
+            "sitting_date",
+            "chamber",
+            "created_at",
+            "updated_at",
+        }
+        missing_required = required_fields - normalized.keys()
+        if missing_required:
+            raise ValueError(
+                "debate payload missing required fields after normalization: "
+                + ", ".join(sorted(missing_required))
+            )
+
+        return normalized
 
     async def map_document_urls(
         self,
