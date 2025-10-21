@@ -42,6 +42,7 @@ class RateLimiter:
         self.burst = burst
         self.tokens = float(burst)  # Start with full bucket
         self.last_update = time.monotonic()
+        self._hit_count = 0
         self.lock = asyncio.Lock()
     
     async def acquire(self) -> None:
@@ -66,6 +67,7 @@ class RateLimiter:
             if self.tokens < 1:
                 # Calculate how long to wait for next token
                 wait_time = (1 - self.tokens) / self.rate
+                self._hit_count += 1
                 await asyncio.sleep(wait_time)
                 
                 # After waiting, we have consumed the wait time
@@ -75,6 +77,15 @@ class RateLimiter:
             else:
                 # We have tokens, consume one
                 self.tokens -= 1
+        return None
+
+    def pop_hit_count(self) -> int:
+        """
+        Return the number of times acquire() had to wait since the last call.
+        """
+        hits = self._hit_count
+        self._hit_count = 0
+        return hits
     
     def get_current_tokens(self) -> float:
         """

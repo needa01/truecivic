@@ -35,6 +35,7 @@ from src.prefect_flows.committee_flow import (
     fetch_all_committees_flow,
     fetch_committee_meetings_flow,
 )
+from src.prefect_flows.politician_flow import fetch_politicians_flow
 from src.db.session import async_session_factory
 from src.db.repositories.committee_repository import CommitteeRepository
 
@@ -56,6 +57,7 @@ SAMPLE_LIMITS = {
     "debates": 10,
     "committees": 10,
     "meetings": 5,
+    "politicians": 100,
 }
 
 FULL_YEAR_LIMITS = {
@@ -64,6 +66,7 @@ FULL_YEAR_LIMITS = {
     "debates": 750,
     "committees": 250,
     "meetings": 200,
+    "politicians": 600,
 }
 
 
@@ -160,7 +163,7 @@ async def backfill_2025(args: argparse.Namespace) -> Dict[str, Any]:
 
     logger.info(
         "Resolved backfill settings: parliament=%s session=%s full=%s "
-        "(requested limits: bills=%s votes=%s debates=%s committees=%s meetings=%s)",
+        "(requested limits: bills=%s votes=%s debates=%s committees=%s meetings=%s politicians=%s)",
         parliament,
         session,
         full_run,
@@ -169,6 +172,15 @@ async def backfill_2025(args: argparse.Namespace) -> Dict[str, Any]:
         args.debate_limit,
         args.committee_limit,
         args.meetings_limit,
+        getattr(args, "politician_limit", None),
+    )
+
+    politician_limit = _resolve_limit(
+        getattr(args, "politician_limit", None), full_run=full_run, domain="politicians"
+    )
+    results["politicians"] = await fetch_politicians_flow(
+        limit=politician_limit,
+        current_only=True,
     )
 
     # Bills (limit to 2025 introductions)
@@ -269,6 +281,12 @@ async def main() -> None:
         type=int,
         default=None,
         help="Number of meetings per committee to fetch",
+    )
+    parser.add_argument(
+        "--politician-limit",
+        type=int,
+        default=None,
+        help="Number of politicians to fetch",
     )
     parser.add_argument(
         "--parliament",
