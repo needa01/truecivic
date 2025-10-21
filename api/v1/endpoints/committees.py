@@ -13,11 +13,93 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.session import get_session
 from src.db.models import CommitteeModel
-from src.models.committee import Committee, CommitteeList
+from src.db.repositories.committee_repository import CommitteeRepository
+from src.db.repositories.committee_meeting_repository import CommitteeMeetingRepository
+from src.models.committee import Committee, CommitteeList, CommitteeMeeting, CommitteeMeetingList
+from src.utils.committee_registry import normalize_committee_code, ensure_internal_slug
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/committees", tags=["committees"])
+
+
+async def _fetch_committee_by_identifier(
+    db: AsyncSession,
+    identifier: str,
+) -> Optional[CommitteeModel]:
+    """
+    Resolve a committee regardless of whether the caller provided a natural id,
+    slug, or raw acronym.
+    """
+    cleaned_identifier = (identifier or "").strip()
+    if not cleaned_identifier:
+        return None
+
+    # Preferred path: natural_id lookup when column exists on the model
+    if hasattr(CommitteeModel, "natural_id"):
+        natural_query = select(CommitteeModel).where(
+            and_(
+                CommitteeModel.natural_id == cleaned_identifier,
+                CommitteeModel.jurisdiction == "ca-federal",
+            )
+        )
+        natural_result = await db.execute(natural_query)
+        committee = natural_result.scalar_one_or_none()
+        if committee:
+            return committee
+
+    repo = CommitteeRepository(db)
+
+    slug_candidates: List[str] = []
+    code_candidates: List[str] = []
+
+    # Natural-id style: ca-federal-44-1-committee-HUMA
+    if "-committee-" in cleaned_identifier.lower():
+        natural_code = cleaned_identifier.split("-committee-", 1)[1].strip()
+        if natural_code:
+            code_candidates.append(natural_code.upper())
+
+    normalized_code = normalize_committee_code(cleaned_identifier)
+    if normalized_code:
+        code_candidates.append(normalized_code)
+
+    # Generate slug candidates from known codes
+    for code in code_candidates:
+        try:
+            slug_candidates.append(ensure_internal_slug(code))
+        except ValueError:
+            continue
+
+    # Direct slug usage (e.g., ca-HUMA)
+    if cleaned_identifier.startswith("ca-"):
+        slug_candidates.append(cleaned_identifier)
+
+    # Try locating by slug first
+    seen_slugs = set()
+    for slug in slug_candidates:
+        normalized_slug = slug.strip()
+        if not normalized_slug or normalized_slug in seen_slugs:
+            continue
+        seen_slugs.add(normalized_slug)
+        try:
+            committee = await repo.get_by_slug(normalized_slug)
+        except ValueError:
+            continue
+        if committee:
+            return committee
+
+    # Fallback: locate by committee code
+    seen_codes = set()
+    for code in code_candidates:
+        normalized_code = code.strip().upper()
+        if not normalized_code or normalized_code in seen_codes:
+            continue
+        seen_codes.add(normalized_code)
+        committee = await repo.get_by_code("ca-federal", normalized_code)
+        if committee:
+            return committee
+
+    return None
 
 
 @router.get("/", response_model=CommitteeList)
@@ -86,18 +168,8 @@ async def get_committee(
     """
     logger.info(f"Getting committee: {committee_id}")
     
-    # Build query
-    query = select(CommitteeModel).where(
-        and_(
-            CommitteeModel.natural_id == committee_id,
-            CommitteeModel.jurisdiction == "ca-federal"
-        )
-    )
-    
-    # Execute query
-    result = await db.execute(query)
-    committee = result.scalar_one_or_none()
-    
+    committee = await _fetch_committee_by_identifier(db, committee_id)
+
     if not committee:
         raise HTTPException(status_code=404, detail=f"Committee {committee_id} not found")
     
@@ -193,3 +265,46 @@ async def get_committees_by_acronym(
     
     logger.info(f"Found {len(committee_list)} committees with acronym {acronym}")
     return committee_list
+
+
+@router.get("/{committee_id}/meetings", response_model=CommitteeMeetingList)
+async def get_committee_meetings(
+    committee_id: str,
+    skip: int = Query(0, ge=0, description="Number of records to skip"),
+    limit: int = Query(50, ge=1, le=200, description="Maximum number of records to return"),
+    db: AsyncSession = Depends(get_session),
+) -> CommitteeMeetingList:
+    """
+    Get committee meetings for a specific committee.
+
+    Returns paginated meetings along with committee metadata.
+    """
+    logger.info(
+        "Getting committee meetings: committee_id=%s skip=%s limit=%s",
+        committee_id,
+        skip,
+        limit,
+    )
+
+    committee = await _fetch_committee_by_identifier(db, committee_id)
+    if not committee:
+        raise HTTPException(status_code=404, detail=f"Committee {committee_id} not found")
+
+    meeting_repo = CommitteeMeetingRepository(db)
+
+    total = await meeting_repo.count_by_committee(committee.id)
+    meetings = await meeting_repo.get_by_committee(
+        committee.id,
+        limit=limit,
+        offset=skip,
+    )
+
+    meetings_payload = [CommitteeMeeting.from_orm(meeting) for meeting in meetings]
+
+    return CommitteeMeetingList(
+        committee=Committee.from_orm(committee),
+        meetings=meetings_payload,
+        total=total,
+        skip=skip,
+        limit=limit,
+    )
