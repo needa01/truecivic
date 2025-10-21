@@ -198,7 +198,12 @@ class CommitteeMeetingRepository:
             # Use PostgreSQL ON CONFLICT for batch upsert
             stmt = pg_insert(CommitteeMeetingModel).values(meetings_data)
             stmt = stmt.on_conflict_do_update(
-                constraint='uq_committee_meeting_natural_key',
+                index_elements=[
+                    CommitteeMeetingModel.committee_id,
+                    CommitteeMeetingModel.meeting_number,
+                    CommitteeMeetingModel.parliament,
+                    CommitteeMeetingModel.session,
+                ],
                 set_={
                     'meeting_date': stmt.excluded.meeting_date,
                     'time_of_day': stmt.excluded.time_of_day,
