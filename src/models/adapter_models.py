@@ -192,3 +192,4 @@ class CommitteeData:
     chamber: str
     source_slug: Optional[str] = None
     parent_committee: Optional[str] = None
+    source_url: Optional[str] = None
