@@ -16,8 +16,10 @@ import asyncio
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import logging
+
+import httpx
 
 from dotenv import load_dotenv
 
@@ -48,8 +50,10 @@ START_2025 = datetime(2025, 1, 1)
 END_2025 = datetime(2025, 12, 31, 23, 59, 59)
 
 # Parliament and session defaults can be overridden via CLI flags or Prefect parameters.
-PARLIAMENT_DEFAULT = 45
-SESSION_DEFAULT: Optional[int] = None
+PARLIAMENT_FALLBACK = 45
+SESSION_FALLBACK: Optional[int] = 1
+
+OPENPARLIAMENT_BASE_URL = "https://api.openparliament.ca"
 
 SAMPLE_LIMITS = {
     "bills": 10,
@@ -136,6 +140,75 @@ def _resolve_limit(
         return requested
     return SAMPLE_LIMITS[domain]
 
+async def _fetch_latest_parliament_session(
+    logger: logging.Logger,
+) -> Tuple[int, Optional[int]]:
+    """Fetch the most recent parliament/session from OpenParliament."""
+
+    async with httpx.AsyncClient(
+        timeout=15.0,
+        headers={
+            "User-Agent": "ParliamentExplorer/1.0 (backfill-test)",
+            "Accept": "application/json",
+        },
+    ) as client:
+        try:
+            response = await client.get(
+                f"{OPENPARLIAMENT_BASE_URL}/debates/",
+                params={
+                    "format": "json",
+                    "limit": 1,
+                    "order_by": "-date",
+                },
+            )
+            response.raise_for_status()
+            payload = response.json()
+            objects = payload.get("objects") or []
+            if not objects:
+                raise ValueError("No debates returned for auto-detection")
+
+            detail_path = objects[0].get("url")
+            if not detail_path:
+                raise ValueError("Latest debate missing detail URL")
+
+            detail_response = await client.get(
+                f"{OPENPARLIAMENT_BASE_URL}{detail_path}",
+                params={"format": "json"},
+            )
+            detail_response.raise_for_status()
+            detail_payload = detail_response.json()
+
+            session_raw = detail_payload.get("session")
+            parliament: Optional[int] = None
+            session_num: Optional[int] = None
+
+            if isinstance(session_raw, dict):
+                parliament = session_raw.get("parliament")
+                session_num = session_raw.get("session")
+            elif isinstance(session_raw, str):
+                parts = session_raw.split("-", 1)
+                if parts and parts[0].isdigit():
+                    parliament = int(parts[0])
+                if len(parts) > 1 and parts[1].isdigit():
+                    session_num = int(parts[1])
+
+            if parliament is None:
+                raise ValueError(f"Unable to parse parliament from session value {session_raw!r}")
+
+            logger.info(
+                "Auto-detected parliament/session from OpenParliament: parliament=%s session=%s",
+                parliament,
+                session_num,
+            )
+            return parliament, session_num
+
+        except Exception as exc:  # pragma: no cover - network dependent
+            logger.warning(
+                "Falling back to static parliament/session defaults due to detection error: %s",
+                exc,
+            )
+            return PARLIAMENT_FALLBACK, SESSION_FALLBACK
+
 
 async def backfill_2025(args: argparse.Namespace) -> Dict[str, Any]:
     """
@@ -149,17 +222,25 @@ async def backfill_2025(args: argparse.Namespace) -> Dict[str, Any]:
     results: Dict[str, Any] = {}
     full_run = bool(getattr(args, "full", False))
 
-    parliament = getattr(args, "parliament", None)
-    if isinstance(parliament, str):
-        cleaned = parliament.strip()
-        parliament = int(cleaned) if cleaned.isdigit() else None
-    if parliament is None:
-        parliament = PARLIAMENT_DEFAULT
+    parliament_input = getattr(args, "parliament", None)
+    if isinstance(parliament_input, str):
+        cleaned = parliament_input.strip()
+        parliament_input = int(cleaned) if cleaned.isdigit() else None
 
-    session = getattr(args, "session", SESSION_DEFAULT)
-    if isinstance(session, str):
-        cleaned = session.strip()
-        session = int(cleaned) if cleaned.isdigit() else None
+    session_input = getattr(args, "session", None)
+    if isinstance(session_input, str):
+        cleaned = session_input.strip()
+        session_input = int(cleaned) if cleaned.isdigit() else None
+
+    auto_parliament: Optional[int] = None
+    auto_session: Optional[int] = None
+    if parliament_input is None or session_input is None:
+        auto_parliament, auto_session = await _fetch_latest_parliament_session(logger)
+
+    parliament = parliament_input if parliament_input is not None else (
+        auto_parliament if auto_parliament is not None else PARLIAMENT_FALLBACK
+    )
+    session = session_input if session_input is not None else auto_session
 
     logger.info(
         "Resolved backfill settings: parliament=%s session=%s full=%s "
@@ -292,7 +373,10 @@ async def main() -> None:
         "--parliament",
         type=int,
         default=None,
-        help=f"Parliament number to target (default: {PARLIAMENT_DEFAULT})",
+        help=(
+            "Parliament number to target (default: auto-detected; fallback to "
+            f"{PARLIAMENT_FALLBACK})"
+        ),
     )
     parser.add_argument(
         "--session",

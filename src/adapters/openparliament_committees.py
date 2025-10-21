@@ -304,9 +304,10 @@ class OpenParliamentCommitteeAdapter(BaseAdapter[Dict[str, Any]]):
             except ValueError:
                 parent_committee = parent_slug
 
+        base_url = self.BASE_URL.rstrip("/")
         source_url = raw_data.get("url")
         if isinstance(source_url, str) and source_url:
-            source_url = f"{self.BASE_URL}{source_url.lstrip('/')}"
+            source_url = f"{base_url}/{source_url.lstrip('/')}"
         else:
             source_url = None
         if session_source_url:
