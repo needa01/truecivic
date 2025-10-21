@@ -13,10 +13,15 @@ import logging
 
 from prefect import flow, task, get_run_logger
 from prefect.task_runners import ConcurrentTaskRunner
+from bs4 import BeautifulSoup
+
 from src.adapters.openparliament_debates import OpenParliamentDebatesAdapter
 from src.db.session import async_session_factory
 from src.db.repositories.speech_repository import SpeechRepository
-from src.db.models import DebateModel
+from src.db.repositories.debate_repository import DebateRepository
+from src.db.repositories.document_repository import DocumentRepository
+from src.db.repositories.embedding_repository import EmbeddingRepository
+from src.services.embedding_service import EmbeddingService
 
 logger = logging.getLogger(__name__)
 
@@ -60,27 +65,39 @@ async def fetch_debates_task(
 
 
 @task(name="fetch_debate_speeches", retries=2, retry_delay_seconds=30)
-async def fetch_debate_speeches_task(debate_id: str) -> List[Dict[str, Any]]:
+async def fetch_debate_speeches_task(
+    debate_path: str,
+    speeches_url: Optional[str] = None,
+    limit: int = 500,
+) -> List[Dict[str, Any]]:
     """
     Fetch all speeches for a specific debate.
     
     Args:
-        debate_id: Debate identifier from API
+        debate_path: Debate path (e.g., '/debates/2025/10/10/')
+        speeches_url: Optional fully-qualified speeches endpoint
+        limit: Maximum number of speeches to retrieve
         
     Returns:
         List of speech dictionaries
     """
     logger_task = get_run_logger()
-    logger_task.info(f"Fetching speeches for debate: {debate_id}")
-    
+    logger_task.info("Fetching speeches for debate path %s", debate_path)
+
     adapter = OpenParliamentDebatesAdapter()
-    response = await adapter.fetch_speeches_for_debate(debate_id)
-    
+    response = await adapter.fetch_speeches_for_debate(
+        debate_id=debate_path,
+        speeches_url=speeches_url,
+        limit=limit,
+    )
+
     if response.errors:
-        logger_task.error(f"Errors fetching speeches: {response.errors}")
-    
+        logger_task.error("Errors fetching speeches: %s", response.errors)
+
     records = response.data or []
-    logger_task.info(f"Fetched {len(records)} speeches for debate {debate_id}")
+    logger_task.info(
+        "Fetched %s speeches for debate path %s", len(records), debate_path
+    )
     return records
 
 
@@ -117,67 +134,255 @@ async def fetch_politician_speeches_task(
 
 
 @task(name="store_debates", retries=1)
-async def store_debates_task(debates_data: List[Dict[str, Any]]) -> Dict[str, int]:
+async def store_debates_task(debates_data: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
-    Store fetched debates in database.
-    
-    Note: DebateRepository implementation expected to exist.
-    For now, this is a placeholder - actual storage implemented after DB layer created.
-    
+    Store fetched debates in the database.
+
     Args:
-        debates_data: List of debate dictionaries
-        
+        debates_data: Normalised debate dictionaries from the adapter
+
     Returns:
-        Dictionary with counts
+        Summary dictionary with counts and lookup tables.
     """
     logger_task = get_run_logger()
-    
+
     if not debates_data:
         logger_task.info("No debates to store")
-        return {"stored": 0}
-    
-    logger_task.info(f"Storing {len(debates_data)} debates")
-    
+        return {"stored": 0, "url_to_id": {}, "hansard_to_id": {}}
+
+    logger_task.info("Storing %s debates", len(debates_data))
+
     try:
-        # TODO: Implement DebateRepository and integrate here
-        logger_task.info(f"✅ Stored {len(debates_data)} debates (placeholder)")
-        return {"stored": len(debates_data)}
-    except Exception as e:
-        logger_task.error(f"Error storing debates: {e}", exc_info=True)
-        return {"stored": 0, "error": str(e)}
+        async with async_session_factory() as session:
+            debate_repo = DebateRepository(session)
+            document_repo = DocumentRepository(session)
+
+            stored_models = await debate_repo.upsert_many(debates_data)
+
+            documents_payload: List[Dict[str, Any]] = []
+            model_by_url = {model.document_url: model for model in stored_models if model.document_url}
+
+            for debate in debates_data:
+                document_path = debate.get("url")
+                model = model_by_url.get(document_path)
+                if not model:
+                    continue
+
+                title_en = debate.get("title_en") or ""
+                title_fr = debate.get("title_fr") or ""
+                source_url = debate.get("source_url")
+
+                lines = [
+                    title_en or title_fr or "Parliamentary Debate",
+                    f"Chamber: {model.chamber}",
+                    f"Sitting date: {model.sitting_date.date().isoformat()}",
+                ]
+                if debate.get("sitting_number"):
+                    lines.append(f"Sitting number: {debate.get('sitting_number')}")
+                if source_url:
+                    lines.append(f"Source: {source_url}")
+
+                documents_payload.append(
+                    {
+                        "jurisdiction": model.jurisdiction,
+                        "entity_type": "debate",
+                        "entity_id": model.id,
+                        "content_type": "metadata",
+                        "language": "en",
+                        "text_content": "\n".join(lines),
+                    }
+                )
+
+            documents_created = 0
+            if documents_payload:
+                await document_repo.upsert_many(documents_payload)
+                documents_created = len(documents_payload)
+
+            await session.commit()
+
+        url_to_id = {model.document_url: model.id for model in stored_models if model.document_url}
+        hansard_to_id = {model.hansard_id: model.id for model in stored_models if model.hansard_id}
+
+        result = {
+            "stored": len(stored_models),
+            "documents_created": documents_created,
+            "url_to_id": url_to_id,
+            "hansard_to_id": hansard_to_id,
+        }
+        logger_task.info("Stored debates result: %s", result)
+        return result
+
+    except Exception as exc:
+        logger_task.error("Error storing debates: %s", exc, exc_info=True)
+        return {"stored": 0, "url_to_id": {}, "hansard_to_id": {}, "error": str(exc)}
 
 
 @task(name="store_speeches", retries=1)
-async def store_speeches_task(speeches_data: List[Dict[str, Any]]) -> Dict[str, int]:
+async def store_speeches_task(
+    speeches_data: List[Dict[str, Any]],
+    debate_lookup: Optional[Dict[str, int]] = None,
+) -> Dict[str, int]:
     """
-    Store fetched speeches in database.
-    
+    Store fetched speeches and generate downstream documents & embeddings.
+
     Args:
-        speeches_data: List of speech dictionaries
-        
+        speeches_data: List of speech dictionaries from the adapter
+        debate_lookup: Optional mapping of debate document paths to database IDs
+
     Returns:
-        Dictionary with count of stored speeches
+        Dictionary with counts of stored artefacts.
     """
     logger_task = get_run_logger()
-    
+
     if not speeches_data:
         logger_task.info("No speeches to store")
-        return {"stored": 0}
-    
-    logger_task.info(f"Storing {len(speeches_data)} speeches")
-    
+        return {"stored": 0, "documents": 0, "embeddings": 0}
+
+    debate_lookup = debate_lookup or {}
+    logger_task.info("Storing %s speeches", len(speeches_data))
+
+    def _plain_text(content: Optional[str]) -> str:
+        if not content:
+            return ""
+        soup = BeautifulSoup(content, "html.parser")
+        return soup.get_text(" ", strip=True)
+
     try:
         async with async_session_factory() as session:
             speech_repo = SpeechRepository(session)
-            stored_speeches = await speech_repo.upsert_many(speeches_data)
+            document_repo = DocumentRepository(session)
+            embedding_repo = EmbeddingRepository(session)
+            debate_repo = DebateRepository(session)
+
+            missing_paths = {
+                speech.get("debate_path")
+                for speech in speeches_data
+                if speech.get("debate_path") and speech.get("debate_path") not in debate_lookup
+            }
+            if missing_paths:
+                debate_map = await debate_repo.map_document_urls(missing_paths)
+                debate_lookup.update({path: model.id for path, model in debate_map.items()})
+
+            speech_payloads: List[Dict[str, Any]] = []
+            plain_text_lookup: Dict[tuple[int, int], str] = {}
+            language_lookup: Dict[tuple[int, int], str] = {}
+
+            for idx, speech in enumerate(speeches_data, start=1):
+                debate_path = speech.get("debate_path")
+                debate_id = debate_lookup.get(debate_path)
+                if not debate_id:
+                    logger_task.warning(
+                        "Skipping speech %s - debate path not resolved (%s)",
+                        speech.get("speech_id"),
+                        debate_path,
+                    )
+                    continue
+
+                sequence = speech.get("sequence")
+                if sequence is None:
+                    sequence = idx
+                try:
+                    sequence = int(sequence)
+                except (TypeError, ValueError):
+                    logger_task.warning(
+                        "Skipping speech %s - invalid sequence value %s",
+                        speech.get("speech_id"),
+                        sequence,
+                    )
+                    continue
+
+                language = speech.get("language")
+                if not language:
+                    if speech.get("text_content_fr") and not speech.get("text_content_en"):
+                        language = "fr"
+                    else:
+                        language = "en"
+
+                text_content = (
+                    speech.get("text_content_en")
+                    or speech.get("text_content")
+                    or speech.get("text_content_fr")
+                    or ""
+                )
+
+                payload = {
+                    "debate_id": debate_id,
+                    "speaker_name": speech.get("speaker_name") or "Unknown speaker",
+                    "sequence": sequence,
+                    "language": language,
+                    "text_content": text_content,
+                    "timestamp_start": speech.get("timestamp_start"),
+                    "timestamp_end": speech.get("timestamp_end"),
+                    "politician_id": None,
+                }
+                speech_payloads.append(payload)
+
+                plain_text_lookup[(debate_id, sequence)] = _plain_text(
+                    speech.get("text_content_en") or speech.get("text_content") or ""
+                )
+                language_lookup[(debate_id, sequence)] = language
+
+            stored_speeches = await speech_repo.upsert_many(speech_payloads)
+
+            documents_payload: List[Dict[str, Any]] = []
+            for speech_model in stored_speeches:
+                key = (speech_model.debate_id, speech_model.sequence)
+                plain = plain_text_lookup.get(key, "")
+                if not plain:
+                    continue
+                documents_payload.append(
+                    {
+                        "jurisdiction": "ca",
+                        "entity_type": "speech",
+                        "entity_id": speech_model.id,
+                        "content_type": "transcript",
+                        "language": language_lookup.get(key, "en"),
+                        "text_content": plain,
+                    }
+                )
+
+            stored_documents = []
+            if documents_payload:
+                stored_documents = await document_repo.upsert_many(documents_payload)
+
+            embedding_chunks: List[dict] = []
+            if stored_documents:
+                embedding_service = EmbeddingService()
+                try:
+                    chunk_results = await embedding_service.embed_documents(
+                        [(doc.id, doc.text_content) for doc in stored_documents if doc.text_content]
+                    )
+                    embedding_chunks = [
+                        {
+                            "document_id": chunk.document_id,
+                            "chunk_id": chunk.chunk_id,
+                            "chunk_text": chunk.chunk_text,
+                            "vector": chunk.vector,
+                            "token_count": chunk.token_count,
+                            "start_char": chunk.start_char,
+                            "end_char": chunk.end_char,
+                        }
+                        for chunk in chunk_results
+                    ]
+                finally:
+                    await embedding_service.close()
+
+            if embedding_chunks:
+                await embedding_repo.upsert_many(embedding_chunks)
+
             await session.commit()
-            
-            logger_task.info(f"✅ Stored {len(stored_speeches)} speeches")
-            return {"stored": len(stored_speeches)}
-    except Exception as e:
-        logger_task.error(f"Error storing speeches: {e}", exc_info=True)
-        await session.rollback()
-        return {"stored": 0, "error": str(e)}
+
+        result = {
+            "stored": len(stored_speeches),
+            "documents": len(stored_documents),
+            "embeddings": len(embedding_chunks),
+        }
+        logger_task.info("Stored speeches result: %s", result)
+        return result
+
+    except Exception as exc:
+        logger_task.error("Error storing speeches: %s", exc, exc_info=True)
+        return {"stored": 0, "documents": 0, "embeddings": 0, "error": str(exc)}
 
 
 @task(name="fetch_debates_batch_with_speeches", retries=1)
@@ -218,9 +423,12 @@ async def fetch_debates_batch_with_speeches_task(
     # Fetch speeches for each debate concurrently
     speech_batches = []
     for debate in debates[:limit]:  # Limit concurrent requests
-        debate_id = debate.get('hansard_id') or debate.get('id')
-        if debate_id:
-            speeches = await fetch_debate_speeches_task(debate_id)
+        debate_path = debate.get("url")
+        if debate_path:
+            speeches = await fetch_debate_speeches_task(
+                debate_path=debate_path,
+                speeches_url=debate.get("speeches_url"),
+            )
             if speeches:
                 speech_batches.append(speeches)
     
@@ -299,21 +507,30 @@ async def fetch_debates_with_speeches_flow(
     
     logger.info(f"Processing {len(debates)} debates for speeches")
     
-    # Store debates first
-    await store_debates_task(debates)
-    
+    # Store debates first and build lookup tables
+    debate_store_result = await store_debates_task(debates)
+    debate_lookup = debate_store_result.get("url_to_id", {}) or {}
+
     # Fetch and store speeches for each debate
     total_speeches = 0
+    total_documents = debate_store_result.get("documents_created", 0)
+    total_embeddings = 0
     for debate in debates:
-        debate_id = debate.get('hansard_id') or debate.get('id')
-        if debate_id:
-            try:
-                speeches = await fetch_debate_speeches_task(debate_id)
-                if speeches:
-                    result = await store_speeches_task(speeches)
-                    total_speeches += result.get('stored', 0)
-            except Exception as e:
-                logger.error(f"Error processing debate {debate_id}: {e}")
+        debate_path = debate.get("url")
+        if not debate_path:
+            continue
+        try:
+            speeches = await fetch_debate_speeches_task(
+                debate_path=debate_path,
+                speeches_url=debate.get("speeches_url"),
+            )
+            if speeches:
+                result = await store_speeches_task(speeches, debate_lookup=debate_lookup)
+                total_speeches += result.get("stored", 0)
+                total_documents += result.get("documents", 0)
+                total_embeddings += result.get("embeddings", 0)
+        except Exception as exc:
+            logger.error("Error processing debate %s: %s", debate_path, exc)
     
     logger.info(
         f"✅ Completed debates with speeches flow: "
@@ -322,7 +539,9 @@ async def fetch_debates_with_speeches_flow(
     
     return {
         "debates": len(debates),
-        "speeches": total_speeches
+        "speeches": total_speeches,
+        "documents": total_documents,
+        "embeddings": total_embeddings,
     }
 
 

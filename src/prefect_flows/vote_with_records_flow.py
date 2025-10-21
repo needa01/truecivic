@@ -6,7 +6,7 @@ Orchestrates vote data fetching and storage including individual ballot records.
 
 import asyncio
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Dict, Any, Tuple, Optional, Set
 import logging
 
 from prefect import flow, task, get_run_logger
@@ -17,7 +17,7 @@ from sqlalchemy import select
 
 from src.db.session import async_session_factory
 from src.db.repositories.vote_repository import VoteRepository, VoteRecordRepository
-from src.db.models import PoliticianModel, BillModel
+from src.db.models import PoliticianModel, BillModel, VoteModel, VoteRecordModel
 from src.utils import dedupe_by_key
 
 logger = logging.getLogger(__name__)
@@ -166,9 +166,16 @@ async def store_votes_batch_task(votes_data: List[Dict[str, Any]]) -> Dict[str, 
         }
 
         sanitized_votes: List[Dict[str, Any]] = []
+        vote_ids: Set[str] = set()
         for vote in votes_data:
             sanitized = {k: v for k, v in vote.items() if k in allowed_keys}
             sanitized.setdefault("jurisdiction", "ca")
+            sanitized.setdefault("created_at", datetime.utcnow())
+            sanitized["updated_at"] = datetime.utcnow()
+
+            vote_identifier = sanitized.get("vote_id")
+            if isinstance(vote_identifier, str):
+                vote_ids.add(vote_identifier)
 
             vote_date = sanitized.get("vote_date")
             if vote_date is None:
@@ -184,17 +191,38 @@ async def store_votes_batch_task(votes_data: List[Dict[str, Any]]) -> Dict[str, 
             sanitized["bill_id"] = bill_id
 
             sanitized_votes.append(sanitized)
-        
+
+        existing_vote_ids: Set[str] = set()
+        if vote_ids:
+            existing_stmt = select(VoteModel.vote_id).where(
+                VoteModel.jurisdiction == "ca",
+                VoteModel.vote_id.in_(vote_ids),
+            )
+            existing_result = await session.execute(existing_stmt)
+            existing_vote_ids = {row[0] for row in existing_result}
+
         # Use batch upsert
         stored_votes = await vote_repo.upsert_many(sanitized_votes)
         await session.commit()
-        
-        logger_task.info(f"Stored {len(stored_votes)} votes")
-        
+
+        created_count = sum(
+            1
+            for vote in sanitized_votes
+            if not vote.get("vote_id") or vote.get("vote_id") not in existing_vote_ids
+        )
+        updated_count = max(len(stored_votes) - created_count, 0)
+
+        logger_task.info(
+            "Stored %s votes (created=%s, updated=%s)",
+            len(stored_votes),
+            created_count,
+            updated_count,
+        )
+
         return {
             "stored": len(stored_votes),
-            "created": len(stored_votes),  # TODO: Track actual creates vs updates
-            "updated": 0
+            "created": created_count,
+            "updated": updated_count,
         }
 
 
@@ -224,8 +252,8 @@ async def store_vote_records_batch_task(
     async with async_session_factory() as session:
         vote_record_repo = VoteRecordRepository(session)
         
-        # Map OpenParliament politician IDs to our database IDs
-        records_to_insert = []
+        # Map OpenParliament politician IDs to our database IDs and deduplicate
+        records_map: Dict[int, Dict[str, Any]] = {}
         
         for record in records_data:
             op_politician_id = record.get("politician_id")
@@ -238,24 +266,46 @@ async def store_vote_records_batch_task(
             politician_id = result.scalar_one_or_none()
             if not politician_id:
                 logger_task.warning(
-                    f"Skipping vote record for politician {op_politician_id} (not found in database)"
+                    "Skipping vote record for politician %s (not found in database)",
+                    op_politician_id,
                 )
                 continue
             
-            records_to_insert.append({
+            records_map[politician_id] = {
                 "vote_id": vote_db_id,
                 "politician_id": politician_id,
                 "vote_position": record.get("vote_position", "Unknown"),
                 "created_at": datetime.utcnow(),
-            })
+            }
         
-        if records_to_insert:
-            stored_records = await vote_record_repo.upsert_many(records_to_insert)
-            await session.commit()
-            logger_task.info(f"Stored {len(stored_records)} vote records")
-            return len(stored_records)
+        records_to_insert = list(records_map.values())
         
-        return 0
+        if not records_to_insert:
+            return 0
+
+        existing_stmt = select(VoteRecordModel.politician_id).where(
+            VoteRecordModel.vote_id == vote_db_id,
+            VoteRecordModel.politician_id.in_([r["politician_id"] for r in records_to_insert]),
+        )
+        existing_result = await session.execute(existing_stmt)
+        existing_politicians = {row[0] for row in existing_result}
+
+        stored_records = await vote_record_repo.upsert_many(records_to_insert)
+        await session.commit()
+
+        created_count = sum(
+            1 for record in records_to_insert if record["politician_id"] not in existing_politicians
+        )
+        updated_count = max(len(stored_records) - created_count, 0)
+
+        logger_task.info(
+            "Stored %s vote records for vote %s (created=%s, updated=%s)",
+            len(stored_records),
+            vote_id,
+            created_count,
+            updated_count,
+        )
+        return len(stored_records)
 
 
 @task(name="get_vote_db_id")
