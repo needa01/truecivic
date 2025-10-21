@@ -17,6 +17,17 @@ from src.utils.committee_registry import build_committee_identifier, resolve_sou
 logger = logging.getLogger(__name__)
 
 
+CANONICAL_JURISDICTION = "ca-federal"
+JURISDICTION_NORMALIZATION = {
+    "ca",
+    "canada",
+    "ca-canada",
+    "ca_federal",
+    "cafederal",
+    "ca-federal",
+}
+
+
 class CommitteeRepository:
     """Repository for committee database operations."""
     
@@ -40,6 +51,7 @@ class CommitteeRepository:
             committee_data.get("committee_slug")
             or committee_data.get("committee_code")
             or committee_data.get("source_slug")
+            or committee_data.get("acronym_en")
         )
         if not identifier_seed:
             raise ValueError("Committee payload requires a code or slug")
@@ -48,11 +60,61 @@ class CommitteeRepository:
         committee_data["committee_code"] = identifier.code
         committee_data["committee_slug"] = identifier.internal_slug
 
+        # Canonical jurisdiction handling
+        jurisdiction = self._canonical_jurisdiction(committee_data.get("jurisdiction"))
+        committee_data["jurisdiction"] = jurisdiction
+
+        # Parliament/session are required for natural-id construction
+        parliament = committee_data.get("parliament")
+        session = committee_data.get("session")
+        if parliament is None or session is None:
+            raise ValueError("Committee payload requires parliament and session values")
+        committee_data["parliament"] = int(parliament)
+        committee_data["session"] = int(session)
+        parliament = committee_data["parliament"]
+        session = committee_data["session"]
+
+        # Ensure acronyms default to committee code for backwards compatibility
+        acronym_en = (committee_data.get("acronym_en") or identifier.code).strip().upper()
+        committee_data["acronym_en"] = acronym_en
+        acronym_fr_value = committee_data.get("acronym_fr")
+        if acronym_fr_value:
+            committee_data["acronym_fr"] = acronym_fr_value.strip().upper()
+        else:
+            committee_data["acronym_fr"] = acronym_en
+
+        # Compute natural_id leveraging canonical components
+        committee_data["natural_id"] = (
+            f"{jurisdiction}-{int(parliament)}-{int(session)}-committee-{identifier.code}"
+        )
+
         source_slug = committee_data.get("source_slug") or identifier.source_slug
         normalized_source_slug = resolve_source_slug(source_slug) if source_slug else None
         committee_data["source_slug"] = normalized_source_slug
 
+        parent_committee = committee_data.get("parent_committee")
+        if parent_committee:
+            try:
+                parent_identifier = build_committee_identifier(parent_committee)
+                committee_data["parent_committee"] = parent_identifier.internal_slug
+            except ValueError:
+                committee_data["parent_committee"] = parent_committee
+
         return committee_data
+
+    @staticmethod
+    def _canonical_jurisdiction(value: Optional[str]) -> str:
+        """
+        Map legacy jurisdiction strings to the canonical committee jurisdiction.
+        """
+        if not value:
+            return CANONICAL_JURISDICTION
+        trimmed = value.strip()
+        if not trimmed:
+            return CANONICAL_JURISDICTION
+        if trimmed.lower() in JURISDICTION_NORMALIZATION:
+            return CANONICAL_JURISDICTION
+        return trimmed
     
     async def get_by_id(self, committee_id: int) -> Optional[CommitteeModel]:
         """
@@ -78,12 +140,14 @@ class CommitteeRepository:
         Get committee by natural key (jurisdiction + code).
         
         Args:
-            jurisdiction: Jurisdiction code (e.g., 'ca')
+            jurisdiction: Jurisdiction code (e.g., 'ca-federal')
             committee_code: Committee code (e.g., 'HUMA', 'FINA')
             
         Returns:
             CommitteeModel or None if not found
         """
+        jurisdiction = self._canonical_jurisdiction(jurisdiction)
+
         normalized_code = build_committee_identifier(committee_code).code
 
         result = await self.session.execute(
@@ -120,7 +184,7 @@ class CommitteeRepository:
     
     async def get_all(
         self,
-        jurisdiction: str = "ca",
+        jurisdiction: str = CANONICAL_JURISDICTION,
         chamber: Optional[str] = None,
         limit: int = 100
     ) -> List[CommitteeModel]:
@@ -135,6 +199,7 @@ class CommitteeRepository:
         Returns:
             List of CommitteeModel
         """
+        jurisdiction = self._canonical_jurisdiction(jurisdiction)
         query = select(CommitteeModel).where(
             CommitteeModel.jurisdiction == jurisdiction
         )
@@ -158,7 +223,7 @@ class CommitteeRepository:
             CommitteeModel (newly created or updated)
         """
         normalized_payload = self._normalize_committee_payload(dict(committee_data))
-        jurisdiction = normalized_payload.get("jurisdiction", "ca")
+        jurisdiction = self._canonical_jurisdiction(normalized_payload.get("jurisdiction"))
         committee_code = normalized_payload["committee_code"]
         
         # Check if exists
@@ -201,8 +266,9 @@ class CommitteeRepository:
         normalized_committees: List[Dict[str, Any]] = []
         for committee in committees_data:
             normalized = self._normalize_committee_payload(dict(committee))
-            if "jurisdiction" not in normalized:
-                normalized["jurisdiction"] = "ca"
+            normalized["jurisdiction"] = self._canonical_jurisdiction(
+                normalized.get("jurisdiction")
+            )
             if "created_at" not in normalized:
                 normalized["created_at"] = datetime.utcnow()
             if "updated_at" not in normalized:
@@ -227,7 +293,7 @@ class CommitteeRepository:
         logger.info(f"Upserted {len(committees)} committees")
         return committees
     
-    async def count(self, jurisdiction: str = "ca") -> int:
+    async def count(self, jurisdiction: str = CANONICAL_JURISDICTION) -> int:
         """
         Count committees in a jurisdiction.
         
@@ -239,7 +305,7 @@ class CommitteeRepository:
         """
         result = await self.session.execute(
             select(func.count(CommitteeModel.id)).where(
-                CommitteeModel.jurisdiction == jurisdiction
+                CommitteeModel.jurisdiction == self._canonical_jurisdiction(jurisdiction)
             )
         )
         return result.scalar() or 0
@@ -247,7 +313,7 @@ class CommitteeRepository:
     async def search_by_name(
         self,
         search_term: str,
-        jurisdiction: str = "ca",
+        jurisdiction: str = CANONICAL_JURISDICTION,
         limit: int = 20
     ) -> List[CommitteeModel]:
         """
@@ -265,7 +331,7 @@ class CommitteeRepository:
             select(CommitteeModel)
             .where(
                 and_(
-                    CommitteeModel.jurisdiction == jurisdiction,
+                    CommitteeModel.jurisdiction == self._canonical_jurisdiction(jurisdiction),
                     func.lower(CommitteeModel.name_en).contains(search_term.lower())
                 )
             )
