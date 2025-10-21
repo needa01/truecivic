@@ -98,3 +98,25 @@ deployments:
       - manual
       - 2025
     description: "Run the scoped 2025 backfill (adjust limits when triggering manually)"
+
+  # Every-six-hour document embedding generation
+  - name: generate-document-embeddings
+    entrypoint: src/prefect_flows/embedding_flow.py:generate_document_embeddings_flow
+    work_pool:
+      name: default-agent-pool
+    schedule:
+      cron: "0 */6 * * *" # Every 6 hours at the top of the hour
+      timezone: "UTC"
+    parameters:
+      limit: 200
+      entity_types:
+        - speech
+        - debate
+      language: "en"
+      content_type: null
+      max_words_per_chunk: 750
+    tags:
+      - production
+      - embeddings
+      - every-six-hours
+    description: "Generate embeddings for newly ingested documents every 6 hours"
