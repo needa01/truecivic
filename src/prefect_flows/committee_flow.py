@@ -427,18 +427,27 @@ async def fetch_committee_meetings_flow(
         )
         all_meetings.extend(meetings)
     
-    # Store meetings
-    store_result = await store_meetings_task(all_meetings)
-    
+    # Store meetings in batches to avoid exceeding statement parameter limits
+    BATCH_SIZE = 2000
+    total_stored = 0
+    note = ""
+    for start_idx in range(0, len(all_meetings), BATCH_SIZE):
+        chunk = all_meetings[start_idx : start_idx + BATCH_SIZE]
+        chunk_result = await store_meetings_task(chunk)
+        total_stored += chunk_result.get("stored", 0)
+        chunk_note = chunk_result.get("note")
+        if chunk_note:
+            note = f"{note}; {chunk_note}" if note else chunk_note
+
     end_time = datetime.utcnow()
     duration = (end_time - start_time).total_seconds()
-    
+
     result = {
         "status": "success",
         "committees_processed": len(committee_identifiers),
         "meetings_fetched": len(all_meetings),
-        "meetings_stored": store_result.get("stored", 0),
-        "note": store_result.get("note", ""),
+        "meetings_stored": total_stored,
+        "note": note,
         "duration_seconds": duration,
         "timestamp": end_time.isoformat()
     }
