@@ -98,6 +98,8 @@ os.environ["TRUECIVIC_CODE_DIR"] = str(CODE_DIRECTORY)
 INSTALL_REQUIREMENTS = getenv_bool("TRUECIVIC_INSTALL_REQUIREMENTS", True)
 REQUIREMENTS_FILE = os.getenv("TRUECIVIC_REQUIREMENTS_FILE", "requirements.txt")
 INSTALL_EDITABLE = getenv_bool("TRUECIVIC_INSTALL_EDITABLE", False)
+PRIMARY_DATABASE_URL = os.getenv("DATABASE_URL")
+SECONDARY_DATABASE_URL = os.getenv("DATABASE_PUBLIC_URL")
 
 
 def _format_command(cmd: Sequence[str]) -> str:
@@ -315,6 +317,20 @@ def main() -> None:
     )
     if TRIGGER_DEPLOYMENTS:
         LOGGER.info("Triggering deployments: %s", ", ".join(TRIGGER_DEPLOYMENTS))
+
+    # Prefer DATABASE_URL, fall back to DATABASE_PUBLIC_URL when present.
+    if PRIMARY_DATABASE_URL:
+        LOGGER.info("Detected DATABASE_URL; using it for flow execution.")
+    elif SECONDARY_DATABASE_URL:
+        os.environ["DATABASE_URL"] = SECONDARY_DATABASE_URL
+        LOGGER.info(
+            "DATABASE_URL not set. Falling back to DATABASE_PUBLIC_URL for flow execution."
+        )
+    else:
+        LOGGER.warning(
+            "No DATABASE_URL or DATABASE_PUBLIC_URL found in environment. "
+            "Flows that access the database may fail."
+        )
 
     verify_repository_access()
     sync_repository()
