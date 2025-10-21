@@ -5,6 +5,21 @@ import { apiClient } from '@/lib/api-client';
 import { Loader2, Gavel } from 'lucide-react';
 import Link from 'next/link';
 
+const getSourceLabel = (url?: string) => {
+  if (!url) {
+    return 'Source';
+  }
+
+  const normalized = url.toLowerCase();
+  if (normalized.includes('ourcommons.ca')) {
+    return 'Our Commons';
+  }
+  if (normalized.includes('openparliament.ca')) {
+    return 'OpenParliament';
+  }
+  return 'Source';
+};
+
 export default function CommitteesPage() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['committees', { limit: 50 }],
@@ -30,7 +45,7 @@ export default function CommitteesPage() {
 
         {isLoading ? (
           <div className="flex items-center justify-center py-20 text-slate-400">
-            <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading committees…
+            <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading committees...
           </div>
         ) : isError ? (
           <div className="rounded-2xl border border-red-900/40 bg-red-900/10 p-6 text-red-200">
@@ -50,6 +65,9 @@ export default function CommitteesPage() {
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">
                     Name
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">
+                    Parliament
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">
                     Chamber
@@ -81,17 +99,22 @@ export default function CommitteesPage() {
                     <td className="px-4 py-3 text-sm text-slate-200">
                       {committee.name_en || committee.acronym_en || 'Unknown'}
                     </td>
+                    <td className="px-4 py-3 text-sm text-slate-300">
+                      {committee.parliament && committee.session
+                        ? `${committee.parliament}-${committee.session}`
+                        : '--'}
+                    </td>
                     <td className="px-4 py-3 text-sm text-slate-300">{committee.chamber}</td>
                     <td className="px-4 py-3 text-sm text-slate-400">
-                      {committee.acronym_en || committee.acronym_fr || '—'}
+                      {committee.acronym_en || committee.acronym_fr || '--'}
                     </td>
                     <td className="px-4 py-3 text-sm text-indigo-300">
                       {committee.source_url ? (
                         <Link href={committee.source_url} target="_blank" className="hover:underline">
-                          OpenParliament
+                          {getSourceLabel(committee.source_url)}
                         </Link>
                       ) : (
-                        'OpenParliament'
+                        getSourceLabel()
                       )}
                     </td>
                   </tr>
@@ -104,3 +127,7 @@ export default function CommitteesPage() {
     </div>
   );
 }
+
+
+
+
