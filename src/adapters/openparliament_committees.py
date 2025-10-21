@@ -239,26 +239,104 @@ class OpenParliamentCommitteeAdapter(BaseAdapter[Dict[str, Any]]):
 
         acronym = raw_data.get("acronym")
         if isinstance(acronym, dict):
-            acronym_value = acronym.get("en") or acronym.get("fr")
+            acronym_en = acronym.get("en") or acronym.get("fr")
+            acronym_fr = acronym.get("fr") or acronym.get("en")
         else:
-            acronym_value = acronym
+            acronym_en = acronym
+            acronym_fr = None
 
-        identifier_source = acronym_value or slug
+        identifier_source = acronym_en or slug
         if not identifier_source:
             raise ValueError("Committee record missing both acronym and slug")
 
         identifier = build_committee_identifier(identifier_source)
 
+        sessions = raw_data.get("sessions") or []
+        parliament: Optional[int] = None
+        session: Optional[int] = None
+        session_acronym: Optional[str] = None
+        session_source_url: Optional[str] = None
+        if isinstance(sessions, list):
+            for entry in sessions:
+                if not isinstance(entry, dict):
+                    continue
+                session_str = entry.get("session")
+                if session_str and isinstance(session_str, str) and "-" in session_str:
+                    parts = session_str.split("-", 1)
+                    try:
+                        parliament = parliament or int(parts[0])
+                        session = session or int(parts[1])
+                    except ValueError:
+                        pass
+                parliament = parliament or entry.get("parliamentnum")
+                session = session or entry.get("sessnum")
+                session_acronym = session_acronym or entry.get("acronym")
+                session_source_url = session_source_url or entry.get("source_url")
+                if parliament is not None and session is not None:
+                    break
+
+        if parliament is None:
+            parliament = 44
+        if session is None:
+            session = 1
+
+        acronym_en = (acronym_en or session_acronym or identifier.code or "").upper()
+        acronym_fr = (acronym_fr or session_acronym or acronym_en or "").upper() or None
+
+        short_name_en = (
+            short_names.get("en")
+            if isinstance(short_names, dict)
+            else short_names
+        )
+        short_name_fr = (
+            short_names.get("fr")
+            if isinstance(short_names, dict)
+            else None
+        )
+
+        parent_url = raw_data.get("parent_url")
+        parent_committee: Optional[str] = None
+        if isinstance(parent_url, str) and parent_url.strip():
+            parent_slug = parent_url.strip("/").split("/")[-1]
+            try:
+                parent_identifier = build_committee_identifier(parent_slug)
+                parent_committee = parent_identifier.internal_slug
+            except ValueError:
+                parent_committee = parent_slug
+
+        source_url = raw_data.get("url")
+        if isinstance(source_url, str) and source_url:
+            source_url = f"{self.BASE_URL}{source_url.lstrip('/')}"
+        else:
+            source_url = None
+        if session_source_url:
+            source_url = session_source_url
+
+        name_en = names.get("en") if isinstance(names, dict) else names
+        name_fr = names.get("fr") if isinstance(names, dict) else None
+        if not short_name_en:
+            short_name_en = name_en
+        if not short_name_fr:
+            short_name_fr = name_fr
+
         return {
             "committee_code": identifier.code,
             "committee_slug": identifier.internal_slug,
             "source_slug": identifier.source_slug,
-            "jurisdiction": raw_data.get("jurisdiction") or "ca",
-            "name_en": names.get("en") if isinstance(names, dict) else names,
-            "name_fr": names.get("fr") if isinstance(names, dict) else None,
+            "jurisdiction": "ca-federal",
+            "name_en": name_en,
+            "name_fr": name_fr,
+            "short_name_en": short_name_en,
+            "short_name_fr": short_name_fr,
+            "acronym_en": acronym_en or identifier.code,
+            "acronym_fr": acronym_fr or acronym_en or identifier.code,
+            "parliament": parliament,
+            "session": session,
+            "parent_committee": parent_committee,
             "chamber": raw_data.get("context", "House"),
             "committee_type": raw_data.get("type"),
-            "website_url": raw_data.get("url"),
+            "website_url": source_url,
+            "source_url": source_url,
         }
 
     def _normalize_meeting(

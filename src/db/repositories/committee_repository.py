@@ -27,6 +27,9 @@ JURISDICTION_NORMALIZATION = {
     "ca-federal",
 }
 
+DEFAULT_PARLIAMENT = 44
+DEFAULT_SESSION = 1
+
 
 class CommitteeRepository:
     """Repository for committee database operations."""
@@ -67,8 +70,10 @@ class CommitteeRepository:
         # Parliament/session are required for natural-id construction
         parliament = committee_data.get("parliament")
         session = committee_data.get("session")
-        if parliament is None or session is None:
-            raise ValueError("Committee payload requires parliament and session values")
+        if parliament is None:
+            parliament = DEFAULT_PARLIAMENT
+        if session is None:
+            session = DEFAULT_SESSION
         committee_data["parliament"] = int(parliament)
         committee_data["session"] = int(session)
         parliament = committee_data["parliament"]

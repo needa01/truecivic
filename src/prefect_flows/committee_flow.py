@@ -158,9 +158,17 @@ async def store_committees_task(
         "jurisdiction",
         "name_en",
         "name_fr",
+        "short_name_en",
+        "short_name_fr",
+        "acronym_en",
+        "acronym_fr",
         "chamber",
         "committee_type",
         "website_url",
+        "source_url",
+        "parent_committee",
+        "parliament",
+        "session",
         "created_at",
         "updated_at",
     }
@@ -182,8 +190,52 @@ async def store_committees_task(
         sanitized = {k: v for k, v in committee.items() if k in allowed_keys}
         sanitized.setdefault("committee_code", identifier.code)
         sanitized.setdefault("committee_slug", identifier.internal_slug)
+
         source_slug = sanitized.get("source_slug") or identifier.source_slug
         sanitized["source_slug"] = resolve_source_slug(source_slug) if source_slug else None
+
+        sanitized["jurisdiction"] = "ca-federal"
+
+        parliament_value = committee.get("parliament")
+        if parliament_value is None:
+            parliament_value = 44
+        sanitized["parliament"] = int(parliament_value)
+
+        session_value = committee.get("session")
+        if session_value is None:
+            session_value = 1
+        sanitized["session"] = int(session_value)
+
+        name_en = sanitized.get("name_en") or committee.get("name_en") or identifier.code
+        sanitized["name_en"] = name_en
+        sanitized.setdefault("name_fr", committee.get("name_fr"))
+
+        sanitized["short_name_en"] = (
+            sanitized.get("short_name_en") or committee.get("short_name_en") or name_en
+        )
+        sanitized["short_name_fr"] = (
+            sanitized.get("short_name_fr") or committee.get("short_name_fr") or sanitized["name_fr"]
+        )
+
+        acronym_en = sanitized.get("acronym_en") or committee.get("acronym_en") or identifier.code
+        sanitized["acronym_en"] = acronym_en.upper()
+        acronym_fr = sanitized.get("acronym_fr") or committee.get("acronym_fr") or acronym_en
+        sanitized["acronym_fr"] = acronym_fr.upper()
+
+        source_url_value = sanitized.get("source_url") or committee.get("source_url") or committee.get("url")
+        if source_url_value and isinstance(source_url_value, str):
+            if source_url_value.startswith("/"):
+                source_url_value = f"https://api.openparliament.ca{source_url_value.lstrip('/')}"
+        sanitized["source_url"] = source_url_value
+        sanitized.setdefault("website_url", source_url_value)
+
+        parent_committee = sanitized.get("parent_committee") or committee.get("parent_committee")
+        if parent_committee:
+            try:
+                sanitized["parent_committee"] = build_committee_identifier(parent_committee).internal_slug
+            except ValueError:
+                sanitized["parent_committee"] = parent_committee
+
         sanitized_committees.append(sanitized)
 
     if not sanitized_committees:
