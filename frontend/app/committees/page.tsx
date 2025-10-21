@@ -64,9 +64,19 @@ export default function CommitteesPage() {
               </thead>
               <tbody className="divide-y divide-slate-800/80">
                 {data.committees.map((committee) => (
-                  <tr key={committee.natural_id} className="hover:bg-slate-900/60 transition-colors">
+                  <tr
+                    key={committee.natural_id || committee.committee_slug}
+                    className="hover:bg-slate-900/60 transition-colors"
+                  >
                     <td className="px-4 py-3 text-sm font-medium text-indigo-200">
-                      {committee.committee_slug}
+                      <Link
+                        href={`/committees/${encodeURIComponent(
+                          committee.natural_id || committee.committee_slug
+                        )}`}
+                        className="hover:underline"
+                      >
+                        {committee.committee_slug}
+                      </Link>
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-200">
                       {committee.name_en || committee.acronym_en || 'Unknown'}
