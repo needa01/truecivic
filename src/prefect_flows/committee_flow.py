@@ -204,20 +204,20 @@ async def store_committees_task(
 
 @task(name="store_meetings", retries=1)
 async def store_meetings_task(
-    meetings_data: List[Dict[str, Any]]
+    meetings: List[Dict[str, Any]]
 ) -> Dict[str, int]:
     """
     Store committee meetings in database.
     
     Args:
-        meetings_data: List of meeting dictionaries
+        meetings: List of meeting dictionaries
         
     Returns:
         Dict with count of stored meetings
     """
     logger_task = get_run_logger()
     
-    if not meetings_data:
+    if not meetings:
         logger_task.info("No meetings to store")
         return {"stored": 0}
     
@@ -231,7 +231,7 @@ async def store_meetings_task(
             slug_to_id: Dict[str, Optional[int]] = {}
             sanitized_meetings: List[Dict[str, Any]] = []
             
-            for meeting in meetings_data:
+            for meeting in meetings:
                 committee_identifier = meeting.get("committee_slug") or meeting.get("committee_code")
                 if not committee_identifier:
                     continue
@@ -419,13 +419,13 @@ async def fetch_committee_meetings_flow(
     
     # Fetch meetings for each committee
     for committee_identifier in committee_identifiers:
-        meetings_data = await fetch_committee_meetings_task(
+        meetings = await fetch_committee_meetings_task(
             committee_identifier=committee_identifier,
             limit=limit_per_committee,
             parliament=parliament,
             session=session
         )
-        all_meetings.extend(meetings_data)
+        all_meetings.extend(meetings)
     
     # Store meetings
     store_result = await store_meetings_task(all_meetings)
