@@ -120,3 +120,19 @@ deployments:
       - embeddings
       - every-six-hours
     description: "Generate embeddings for newly ingested documents every 6 hours"
+
+  # Manual Alembic migration runner
+  - name: alembic-upgrade
+    entrypoint: src/prefect_flows/alembic_flow.py:alembic_upgrade_flow
+    work_pool:
+      name: default-agent-pool
+    parameters:
+      revision: "head"
+      config_path: "alembic.ini"
+      sql: false
+      tag: null
+    tags:
+      - maintenance
+      - migrations
+      - manual
+    description: "Run Alembic migrations from within the Prefect/Railway environment (manual trigger)"
