@@ -62,6 +62,7 @@ class OpenParliamentCommitteeAdapter(BaseAdapter[Dict[str, Any]]):
         Returns:
             AdapterResponse containing committee dictionaries.
         """
+        self._reset_metrics()
         start_time = datetime.utcnow()
         records: List[Dict[str, Any]] = []
         errors: List[AdapterError] = []
@@ -81,7 +82,11 @@ class OpenParliamentCommitteeAdapter(BaseAdapter[Dict[str, Any]]):
         try:
             while url and fetched < limit:
                 await self.rate_limiter.acquire()
-                response = await self.client.get(url, params=params if params else None)
+                response = await self._request_with_retries(
+                    self.client.get,
+                    url,
+                    params=params if params else None,
+                )
                 response.raise_for_status()
 
                 payload = response.json()
@@ -130,6 +135,7 @@ class OpenParliamentCommitteeAdapter(BaseAdapter[Dict[str, Any]]):
         session: Optional[int] = None,
     ) -> AdapterResponse[Dict[str, Any]]:
         """Fetch meetings for a specific committee."""
+        self._reset_metrics()
         start_time = datetime.utcnow()
         records: List[Dict[str, Any]] = []
         errors: List[AdapterError] = []
@@ -163,7 +169,11 @@ class OpenParliamentCommitteeAdapter(BaseAdapter[Dict[str, Any]]):
         try:
             while url and fetched < limit:
                 await self.rate_limiter.acquire()
-                response = await self.client.get(url, params=params if params else None)
+                response = await self._request_with_retries(
+                    self.client.get,
+                    url,
+                    params=params if params else None,
+                )
                 response.raise_for_status()
 
                 payload = response.json()
@@ -198,13 +208,18 @@ class OpenParliamentCommitteeAdapter(BaseAdapter[Dict[str, Any]]):
         meeting_id: int,
     ) -> AdapterResponse[Dict[str, Any]]:
         """Fetch detailed information for a single meeting."""
+        self._reset_metrics()
         start_time = datetime.utcnow()
 
         url = f"{self.BASE_URL}/committees/meetings/{meeting_id}/"
 
         try:
             await self.rate_limiter.acquire()
-            response = await self.client.get(url, params={"format": "json"})
+            response = await self._request_with_retries(
+                self.client.get,
+                url,
+                params={"format": "json"},
+            )
             response.raise_for_status()
             payload = response.json()
 

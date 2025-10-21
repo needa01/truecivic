@@ -78,6 +78,7 @@ class LEGISinfoAdapter(BaseAdapter[Dict[str, Any]]):
         Returns:
             AdapterResponse containing enrichment data dict
         """
+        self._reset_metrics()
         start_time = datetime.utcnow()
         errors: List[AdapterError] = []
         
@@ -93,7 +94,7 @@ class LEGISinfoAdapter(BaseAdapter[Dict[str, Any]]):
             self.logger.debug(f"GET {url}")
             
             # Make request
-            response = await self.client.get(url)
+            response = await self._request_with_retries(self.client.get, url)
             response.raise_for_status()
             
             # Parse HTML

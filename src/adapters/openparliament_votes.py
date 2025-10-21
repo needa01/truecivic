@@ -57,6 +57,7 @@ class OpenParliamentVotesAdapter(BaseAdapter[Dict[str, Any]]):
         Returns:
             AdapterResponse containing vote dictionaries.
         """
+        self._reset_metrics()
         start_time = datetime.utcnow()
         records: List[Dict[str, Any]] = []
         errors: List[AdapterError] = []
@@ -82,7 +83,11 @@ class OpenParliamentVotesAdapter(BaseAdapter[Dict[str, Any]]):
         try:
             while url and fetched < limit:
                 await self.rate_limiter.acquire()
-                response = await self.client.get(url, params=params if params else None)
+                response = await self._request_with_retries(
+                    self.client.get,
+                    url,
+                    params=params if params else None,
+                )
                 response.raise_for_status()
 
                 payload = response.json()
@@ -128,12 +133,17 @@ class OpenParliamentVotesAdapter(BaseAdapter[Dict[str, Any]]):
         vote_id: str,
     ) -> AdapterResponse[Dict[str, Any]]:
         """Fetch a specific vote with MP ballots."""
+        self._reset_metrics()
         start_time = datetime.utcnow()
         url = f"{self.BASE_URL}/votes/{vote_id}/"
 
         try:
             await self.rate_limiter.acquire()
-            response = await self.client.get(url, params={"format": "json"})
+            response = await self._request_with_retries(
+                self.client.get,
+                url,
+                params={"format": "json"},
+            )
             response.raise_for_status()
 
             payload = response.json()

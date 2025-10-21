@@ -77,6 +77,7 @@ class OpenParliamentBillsAdapter(BaseAdapter[Bill]):
         Returns:
             AdapterResponse containing list of Bill objects
         """
+        self._reset_metrics()
         start_time = datetime.utcnow()
         bills: list[Bill] = []
         errors: list[AdapterError] = []
@@ -122,7 +123,11 @@ class OpenParliamentBillsAdapter(BaseAdapter[Bill]):
                 self.logger.debug(f"GET {url}")
                 
                 # Make request
-                response = await self.client.get(url, params=params if params else None)
+                response = await self._request_with_retries(
+                    self.client.get,
+                    url,
+                    params=params if params else None,
+                )
                 response.raise_for_status()
                 
                 data = response.json()

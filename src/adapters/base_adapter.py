@@ -10,7 +10,8 @@ Responsibility: Abstract base class defining adapter contract
 
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Generic, TypeVar, Any, Optional
+from typing import Generic, TypeVar, Any, Optional, Callable, Awaitable
+import asyncio
 import logging
 
 from ..models.adapter_models import (
@@ -73,6 +74,7 @@ class BaseAdapter(ABC, Generic[T]):
         
         # Set up logger
         self.logger = logging.getLogger(f"adapter.{source_name}")
+        self._current_retry_attempts = 0
     
     @abstractmethod
     async def fetch(self, **kwargs: Any) -> AdapterResponse[T]:
@@ -143,6 +145,9 @@ class BaseAdapter(ABC, Generic[T]):
             from datetime import timedelta
             cache_until = end_time + timedelta(seconds=cache_ttl_seconds)
         
+        rate_hits = self.rate_limiter.pop_hit_count()
+        retry_attempts = self._current_retry_attempts
+
         return AdapterResponse(
             status=status,
             data=data,
@@ -152,8 +157,8 @@ class BaseAdapter(ABC, Generic[T]):
                 records_succeeded=len(data),
                 records_failed=len(errors),
                 duration_seconds=duration,
-                rate_limit_hits=0,  # TODO: Track this in rate_limiter
-                retry_count=0  # TODO: Track this in retry logic
+                rate_limit_hits=rate_hits,
+                retry_count=retry_attempts
             ),
             source=self.source_name,
             fetch_timestamp=end_time,
@@ -174,6 +179,9 @@ class BaseAdapter(ABC, Generic[T]):
         end_time = datetime.utcnow()
         duration = (end_time - start_time).total_seconds()
         
+        rate_hits = self.rate_limiter.pop_hit_count()
+        retry_attempts = self._current_retry_attempts
+
         return AdapterResponse(
             status=AdapterStatus.SOURCE_UNAVAILABLE if retryable else AdapterStatus.FAILURE,
             data=None,
@@ -189,9 +197,43 @@ class BaseAdapter(ABC, Generic[T]):
                 records_succeeded=0,
                 records_failed=0,
                 duration_seconds=duration,
-                rate_limit_hits=0,
-                retry_count=0
+                rate_limit_hits=rate_hits,
+                retry_count=retry_attempts
             ),
             source=self.source_name,
             fetch_timestamp=end_time
         )
+    
+    def _reset_metrics(self) -> None:
+        """Reset internal counters for rate limit hits and retry attempts."""
+        self._current_retry_attempts = 0
+        self.rate_limiter.pop_hit_count()
+    
+    async def _request_with_retries(
+        self,
+        request_callable: Callable[..., Awaitable[Any]],
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        """
+        Execute an HTTP request with retry logic and metrics tracking.
+        """
+        attempt = 0
+        while True:
+            try:
+                return await request_callable(*args, **kwargs)
+            except Exception as exc:
+                attempt += 1
+                if attempt > self.max_retries:
+                    raise
+                self._current_retry_attempts += 1
+                wait_time = min(2 ** (attempt - 1), 10)
+                self.logger.warning(
+                    "%s request failed with %s. Retrying in %s seconds (attempt %s/%s)",
+                    self.source_name,
+                    type(exc).__name__,
+                    wait_time,
+                    attempt,
+                    self.max_retries,
+                )
+                await asyncio.sleep(wait_time)
