@@ -299,7 +299,29 @@ async def get_committee_meetings(
         offset=skip,
     )
 
-    meetings_payload = [CommitteeMeeting.from_orm(meeting) for meeting in meetings]
+    # Manually construct CommitteeMeeting objects with committee_slug
+    meetings_payload = []
+    for meeting in meetings:
+        meeting_dict = {
+            "id": meeting.id,
+            "committee_id": meeting.committee_id,
+            "committee_slug": committee.committee_slug,  # Add from parent committee
+            "meeting_number": meeting.meeting_number,
+            "parliament": meeting.parliament,
+            "session": meeting.session,
+            "meeting_date": meeting.meeting_date,
+            "time_of_day": meeting.time_of_day,
+            "title_en": meeting.title_en,
+            "title_fr": meeting.title_fr,
+            "meeting_type": meeting.meeting_type,
+            "room": meeting.room,
+            "witnesses": meeting.witnesses,
+            "documents": meeting.documents,
+            "source_url": meeting.source_url,
+            "created_at": meeting.created_at,
+            "updated_at": meeting.updated_at,
+        }
+        meetings_payload.append(CommitteeMeeting(**meeting_dict))
 
     return CommitteeMeetingList(
         committee=Committee.from_orm(committee),
