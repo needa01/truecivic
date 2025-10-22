@@ -18,6 +18,7 @@ class Speech(BaseModel):
     content_fr: Optional[str] = Field(None, description="French content of the speech")
     speech_time: Optional[datetime] = Field(None, description="Time of the speech")
     speaker_name: Optional[str] = Field(None, description="Name of the speaker")
+    speaker_display_name: Optional[str] = Field(None, description="Full display name of the speaker")
     speaker_role: Optional[str] = Field(None, description="Role of the speaker")
     sequence: int = Field(description="Sequence order of speech in debate")
     created_at: datetime = Field(description="When this record was created")
