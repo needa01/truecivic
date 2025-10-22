@@ -53,9 +53,9 @@ async def list_debates(
     if debate_type:
         query = query.where(DebateModel.debate_type == debate_type)
     if from_date:
-        query = query.where(DebateModel.debate_date >= from_date)
+        query = query.where(DebateModel.sitting_date >= datetime.combine(from_date, datetime.min.time()))
     if to_date:
-        query = query.where(DebateModel.debate_date <= to_date)
+        query = query.where(DebateModel.sitting_date <= datetime.combine(to_date, datetime.max.time()))
     
     # Get total count
     count_query = select(func.count()).select_from(query.subquery())
@@ -63,15 +63,33 @@ async def list_debates(
     total = total_result.scalar()
     
     # Apply pagination and ordering
-    query = query.order_by(desc(DebateModel.debate_date), desc(DebateModel.debate_number))
+    query = query.order_by(desc(DebateModel.sitting_date), DebateModel.hansard_id)
     query = query.offset(skip).limit(limit)
     
     # Execute query
     result = await db.execute(query)
     debates = result.scalars().all()
     
-    # Convert to Pydantic models
-    debate_list = [Debate.from_orm(debate) for debate in debates]
+    # Convert to Pydantic models - manually construct to match schema
+    debate_list = []
+    for debate in debates:
+        debate_dict = {
+            "natural_id": f"ca-federal-{debate.parliament}-{debate.session}-debate-{debate.hansard_id}",
+            "jurisdiction": debate.jurisdiction,
+            "parliament": debate.parliament,
+            "session": debate.session,
+            "debate_number": debate.hansard_id,
+            "chamber": debate.chamber,
+            "debate_date": debate.sitting_date,
+            "topic_en": None,  # Not in database
+            "topic_fr": None,  # Not in database
+            "debate_type": debate.debate_type or "",
+            "source_url": debate.document_url,
+            "created_at": debate.created_at,
+            "updated_at": debate.updated_at,
+            "speeches": []
+        }
+        debate_list.append(Debate(**debate_dict))
     
     logger.info(f"Found {len(debate_list)} debates (total: {total})")
     
@@ -96,17 +114,13 @@ async def get_debate(
     """
     logger.info(f"Getting debate: {debate_id}")
     
-    # Build query
+    # Build query - use hansard_id from database
     query = select(DebateModel).where(
         and_(
-            DebateModel.natural_id == debate_id,
+            DebateModel.hansard_id == debate_id,
             DebateModel.jurisdiction == "ca-federal"
         )
     )
-    
-    # Optionally load speeches
-    if include_speeches:
-        query = query.options(selectinload(DebateModel.speeches))
     
     # Execute query
     result = await db.execute(query)
@@ -115,20 +129,53 @@ async def get_debate(
     if not debate:
         raise HTTPException(status_code=404, detail=f"Debate {debate_id} not found")
     
-    # Convert to Pydantic model
-    debate_data = Debate.from_orm(debate)
+    # Convert to Pydantic model - manually construct to match schema
+    debate_dict = {
+        "natural_id": f"ca-federal-{debate.parliament}-{debate.session}-debate-{debate.hansard_id}",
+        "jurisdiction": debate.jurisdiction,
+        "parliament": debate.parliament,
+        "session": debate.session,
+        "debate_number": debate.hansard_id,
+        "chamber": debate.chamber,
+        "debate_date": debate.sitting_date,
+        "topic_en": None,  # Not in database
+        "topic_fr": None,  # Not in database
+        "debate_type": debate.debate_type or "",
+        "source_url": debate.document_url,
+        "created_at": debate.created_at,
+        "updated_at": debate.updated_at,
+        "speeches": []
+    }
     
-    # If speeches requested, fetch them separately if not already loaded
-    if include_speeches and not debate.speeches:
+    # If speeches requested, fetch them and manually construct
+    if include_speeches:
         speeches_query = select(SpeechModel).where(
-            and_(
-                SpeechModel.debate_id == debate_id,
-                SpeechModel.jurisdiction == "ca-federal"
-            )
+            SpeechModel.debate_id == debate.id
         ).order_by(SpeechModel.sequence)
         speeches_result = await db.execute(speeches_query)
         speeches = speeches_result.scalars().all()
-        debate_data.speeches = [Speech.from_orm(speech) for speech in speeches]
+        
+        speeches_list = []
+        for speech in speeches:
+            speech_dict = {
+                "natural_id": f"ca-federal-{debate.parliament}-{debate.session}-debate-{debate.hansard_id}-speech-{speech.sequence}",
+                "jurisdiction": "ca-federal",
+                "debate_id": f"ca-federal-{debate.parliament}-{debate.session}-debate-{debate.hansard_id}",
+                "politician_id": speech.politician_id,
+                "content_en": speech.text_content if speech.language == 'en' else None,
+                "content_fr": speech.text_content if speech.language == 'fr' else None,
+                "speech_time": datetime.combine(debate.sitting_date.date(), speech.timestamp_start) if speech.timestamp_start else None,
+                "speaker_name": speech.speaker_name,
+                "speaker_display_name": speech.speaker_display_name,
+                "speaker_role": None,  # Not in database
+                "sequence": speech.sequence,
+                "created_at": speech.created_at,
+                "updated_at": getattr(speech, 'updated_at', speech.created_at)
+            }
+            speeches_list.append(Speech(**speech_dict))
+        debate_dict["speeches"] = speeches_list
+    
+    debate_data = Debate(**debate_dict)
     
     logger.info(f"Found debate: {debate_id}")
     return debate_data
@@ -149,10 +196,10 @@ async def get_debate_speeches(
     """
     logger.info(f"Getting speeches for debate: {debate_id}")
     
-    # Verify debate exists
+    # Verify debate exists - use hansard_id
     debate_query = select(DebateModel).where(
         and_(
-            DebateModel.natural_id == debate_id,
+            DebateModel.hansard_id == debate_id,
             DebateModel.jurisdiction == "ca-federal"
         )
     )
@@ -162,13 +209,8 @@ async def get_debate_speeches(
     if not debate:
         raise HTTPException(status_code=404, detail=f"Debate {debate_id} not found")
     
-    # Build speeches query
-    query = select(SpeechModel).where(
-        and_(
-            SpeechModel.debate_id == debate_id,
-            SpeechModel.jurisdiction == "ca-federal"
-        )
-    )
+    # Build speeches query - debate_id FK is debate.id (integer)
+    query = select(SpeechModel).where(SpeechModel.debate_id == debate.id)
     
     # Apply filters
     if politician_id is not None:
@@ -182,8 +224,25 @@ async def get_debate_speeches(
     result = await db.execute(query)
     speeches = result.scalars().all()
     
-    # Convert to Pydantic models
-    speeches_list = [Speech.from_orm(speech) for speech in speeches]
+    # Convert to Pydantic models - manually construct
+    speeches_list = []
+    for speech in speeches:
+        speech_dict = {
+            "natural_id": f"ca-federal-{debate.parliament}-{debate.session}-debate-{debate.hansard_id}-speech-{speech.sequence}",
+            "jurisdiction": "ca-federal",
+            "debate_id": f"ca-federal-{debate.parliament}-{debate.session}-debate-{debate.hansard_id}",
+            "politician_id": speech.politician_id,
+            "content_en": speech.text_content if speech.language == 'en' else None,
+            "content_fr": speech.text_content if speech.language == 'fr' else None,
+            "speech_time": datetime.combine(debate.sitting_date.date(), speech.timestamp_start) if speech.timestamp_start else None,
+            "speaker_name": speech.speaker_name,
+            "speaker_display_name": speech.speaker_display_name,
+            "speaker_role": None,  # Not in database
+            "sequence": speech.sequence,
+            "created_at": speech.created_at,
+            "updated_at": getattr(speech, 'updated_at', speech.created_at)
+        }
+        speeches_list.append(Speech(**speech_dict))
     
     logger.info(f"Found {len(speeches_list)} speeches")
     return speeches_list
@@ -207,19 +266,11 @@ async def get_speeches_by_politician(
     """
     logger.info(f"Getting speeches for politician: {politician_id}")
     
-    # Build query - join with debates to get date
-    query = select(SpeechModel).join(
+    # Build query - join with debates to get date and parliament/session info
+    query = select(SpeechModel, DebateModel).join(
         DebateModel,
-        and_(
-            SpeechModel.debate_id == DebateModel.natural_id,
-            SpeechModel.jurisdiction == DebateModel.jurisdiction
-        )
-    ).where(
-        and_(
-            SpeechModel.politician_id == politician_id,
-            SpeechModel.jurisdiction == "ca-federal"
-        )
-    )
+        SpeechModel.debate_id == DebateModel.id
+    ).where(SpeechModel.politician_id == politician_id)
     
     # Apply filters
     if parliament is not None:
@@ -227,20 +278,37 @@ async def get_speeches_by_politician(
     if session is not None:
         query = query.where(DebateModel.session == session)
     if from_date:
-        query = query.where(DebateModel.debate_date >= from_date)
+        query = query.where(DebateModel.sitting_date >= datetime.combine(from_date, datetime.min.time()))
     if to_date:
-        query = query.where(DebateModel.debate_date <= to_date)
+        query = query.where(DebateModel.sitting_date <= datetime.combine(to_date, datetime.max.time()))
     
     # Apply pagination and ordering
-    query = query.order_by(desc(DebateModel.debate_date), SpeechModel.sequence)
+    query = query.order_by(desc(DebateModel.sitting_date), SpeechModel.sequence)
     query = query.offset(skip).limit(limit)
     
     # Execute query
     result = await db.execute(query)
-    speeches = result.scalars().all()
+    rows = result.all()
     
-    # Convert to Pydantic models
-    speeches_list = [Speech.from_orm(speech) for speech in speeches]
+    # Convert to Pydantic models - manually construct
+    speeches_list = []
+    for speech, debate in rows:
+        speech_dict = {
+            "natural_id": f"ca-federal-{debate.parliament}-{debate.session}-debate-{debate.hansard_id}-speech-{speech.sequence}",
+            "jurisdiction": "ca-federal",
+            "debate_id": f"ca-federal-{debate.parliament}-{debate.session}-debate-{debate.hansard_id}",
+            "politician_id": speech.politician_id,
+            "content_en": speech.text_content if speech.language == 'en' else None,
+            "content_fr": speech.text_content if speech.language == 'fr' else None,
+            "speech_time": datetime.combine(debate.sitting_date.date(), speech.timestamp_start) if speech.timestamp_start else None,
+            "speaker_name": speech.speaker_name,
+            "speaker_display_name": speech.speaker_display_name,
+            "speaker_role": None,  # Not in database
+            "sequence": speech.sequence,
+            "created_at": speech.created_at,
+            "updated_at": getattr(speech, 'updated_at', speech.created_at)
+        }
+        speeches_list.append(Speech(**speech_dict))
     
     logger.info(f"Found {len(speeches_list)} speeches for politician {politician_id}")
     return speeches_list
