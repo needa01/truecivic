@@ -7,7 +7,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = "10_add_speaker_display_name_to_speeches"
+revision: str = "10_speaker_display_name"
 down_revision: Union[str, None] = "9_committee_metadata_expansion"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

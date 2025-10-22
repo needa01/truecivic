@@ -9,6 +9,7 @@ can continue without failing.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 from dataclasses import dataclass
@@ -18,6 +19,7 @@ import httpx
 
 DEFAULT_MODEL = "text-embedding-3-small"
 DEFAULT_ENDPOINT = "https://api.openai.com/v1/embeddings"
+DEFAULT_VECTOR_DIMENSIONS = 1536
 
 logger = logging.getLogger(__name__)
 
@@ -76,12 +78,17 @@ class EmbeddingService:
         model: Optional[str] = None,
         endpoint: str = DEFAULT_ENDPOINT,
         timeout: float = 30.0,
+        fallback_mode: Optional[str] = None,
+        fallback_dimensions: int = DEFAULT_VECTOR_DIMENSIONS,
     ) -> None:
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         self.model = model or os.getenv("OPENAI_EMBEDDING_MODEL", DEFAULT_MODEL)
         self.endpoint = endpoint
         self.timeout = timeout
         self._client: Optional[httpx.AsyncClient] = None
+        self.fallback_mode = (fallback_mode or os.getenv("EMBEDDING_FALLBACK_MODE", "auto")).strip().lower()
+        self.fallback_dimensions = max(1, fallback_dimensions)
+        self._fallback_warned = False
 
     @property
     def enabled(self) -> bool:
@@ -112,6 +119,18 @@ class EmbeddingService:
         Returns an empty list when embeddings are disabled or the text is empty.
         """
         if not self.enabled:
+            if self.fallback_mode in {"auto", "deterministic"}:
+                if not self._fallback_warned:
+                    logger.warning(
+                        "EmbeddingService using deterministic fallback embeddings (no OPENAI_API_KEY present)."
+                    )
+                    self._fallback_warned = True
+                return self._fallback_embeddings(
+                    document_id=document_id,
+                    text=text,
+                    max_words=max_words,
+                )
+
             logger.warning(
                 "EmbeddingService disabled (missing OPENAI_API_KEY); skipping embeddings."
             )
@@ -177,6 +196,59 @@ class EmbeddingService:
             )
 
         return results
+
+    def _fallback_embeddings(
+        self,
+        *,
+        document_id: int,
+        text: str,
+        max_words: int = 750,
+    ) -> List[EmbeddingChunk]:
+        if not text:
+            return []
+
+        chunks = _word_chunks(text, max_words=max_words)
+        if not chunks:
+            return []
+
+        results: List[EmbeddingChunk] = []
+        for idx, (chunk_text, start_char, end_char) in enumerate(chunks):
+            vector = self._deterministic_vector(chunk_text)
+            token_count = len(chunk_text.split())
+            results.append(
+                EmbeddingChunk(
+                    document_id=document_id,
+                    chunk_id=idx,
+                    chunk_text=chunk_text,
+                    vector=vector,
+                    token_count=token_count,
+                    start_char=start_char,
+                    end_char=end_char,
+                )
+            )
+
+        return results
+
+    def _deterministic_vector(self, text: str) -> List[float]:
+        seed = hashlib.sha256(text.encode("utf-8")).digest()
+        vector: List[float] = []
+        counter = 0
+
+        while len(vector) < self.fallback_dimensions:
+            counter_bytes = counter.to_bytes(4, "little", signed=False)
+            digest = hashlib.sha256(seed + counter_bytes).digest()
+            for start in range(0, len(digest), 4):
+                chunk = digest[start:start + 4]
+                if len(chunk) < 4:
+                    break
+                value = int.from_bytes(chunk, "little", signed=False)
+                scaled = (value / 0xFFFFFFFF) * 2 - 1
+                vector.append(scaled)
+                if len(vector) >= self.fallback_dimensions:
+                    break
+            counter += 1
+
+        return vector
 
     async def embed_documents(
         self,
