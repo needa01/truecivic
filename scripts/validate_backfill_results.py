@@ -12,7 +12,7 @@ import asyncio
 import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, List, Tuple
 
 import asyncpg
 from dotenv import load_dotenv
@@ -31,10 +31,47 @@ def load_environment(env: str | None) -> None:
 
     for path in candidates.get(env, []) + [ROOT_DIR / ".env"]:
         if path.exists():
-            load_dotenv(path)
+            load_dotenv(path, override=True)
             return
 
-    load_dotenv()
+    load_dotenv(override=True)
+
+
+async def connect_with_fallback() -> asyncpg.Connection:
+    """Connect to the database, preferring private URLs over public ones."""
+
+    candidate_names: List[str] = [
+        "DATABASE_URL",
+        "DATABASE_POOLING_URL",
+        "DATABASE_PUBLIC_URL",
+    ]
+
+    candidates: List[Tuple[str, str]] = []
+    for name in candidate_names:
+        value = os.environ.get(name)
+        if value:
+            candidates.append((name, value))
+
+    if not candidates:
+        raise RuntimeError(
+            "No database connection string found. Set DATABASE_URL or DATABASE_PUBLIC_URL."
+        )
+
+    errors: List[Tuple[str, Exception]] = []
+    for name, dsn in candidates:
+        try:
+            connection = await asyncpg.connect(dsn=dsn)
+            print(f"Connected using {name}.")
+            return connection
+        except Exception as exc:  # noqa: PERF203 - deliberate broad catch to capture connection reasons
+            errors.append((name, exc))
+
+    formatted_errors = "\n".join(
+        f" - {name}: {type(error).__name__}: {error}" for name, error in errors
+    )
+    raise RuntimeError(
+        "Failed to connect using available database URLs:\n" f"{formatted_errors}"
+    )
 
 
 # MARK: validation logic
@@ -63,13 +100,7 @@ async def summarize(window_minutes: int, environment: str | None) -> None:
         ),
     }
 
-    db_url = os.environ.get("DATABASE_PUBLIC_URL") or os.environ.get("DATABASE_URL")
-    if not db_url:
-        raise RuntimeError(
-            "DATABASE_PUBLIC_URL or DATABASE_URL is not set; check environment configuration."
-        )
-
-    connection = await asyncpg.connect(dsn=db_url)
+    connection = await connect_with_fallback()
 
     print(f"Validation window start (UTC): {window_start.isoformat()}\n")
 
