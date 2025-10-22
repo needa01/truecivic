@@ -4,7 +4,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { ArrowLeft, ExternalLink, Loader2 } from 'lucide-react';
-import { apiClient, Bill } from '@/lib/api-client';
+import { apiClient, Bill, ApiClientError } from '@/lib/api-client';
 
 function formatDate(value: string | null) {
   if (!value) return '—';
@@ -25,11 +25,12 @@ export default function BillDetailPage() {
   const idParam = Array.isArray(params?.id) ? params.id[0] : params?.id;
   const billId = Number(idParam);
 
-  const { data, isLoading, isError } = useQuery<Bill>({
+  const { data, isLoading, isError, error } = useQuery<Bill, ApiClientError>({
     queryKey: ['bill', billId],
     queryFn: () => apiClient.getBillById(billId),
     enabled: Number.isFinite(billId),
   });
+  const errorMessage = error?.message ?? 'It may not exist yet—try re-running the ingestion pipeline.';
 
   if (!Number.isFinite(billId)) {
     return (
@@ -61,7 +62,8 @@ export default function BillDetailPage() {
           </div>
         ) : isError || !data ? (
           <div className="rounded-2xl border border-red-900/40 bg-red-900/10 p-6 text-red-200">
-            Unable to load this bill. It may not exist yet—try re-running the ingestion pipeline.
+            <p className="font-semibold">Unable to load this bill.</p>
+            <p className="mt-2 text-sm text-red-100/80">{errorMessage}</p>
           </div>
         ) : (
           <div className="space-y-6">

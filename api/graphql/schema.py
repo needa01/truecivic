@@ -9,8 +9,8 @@ Responsibility: GraphQL type definitions and resolvers.
 from datetime import datetime
 from typing import List, Optional
 
-import strawberry
-from strawberry.types import Info
+import strawberry  # type: ignore[import]
+from strawberry.types import Info  # type: ignore[import]
 
 from src.db.models import (
     BillModel,

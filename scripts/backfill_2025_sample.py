@@ -1,9 +1,9 @@
 """
-2025 backfill runner.
+Configurable backfill runner for OpenParliament-sourced datasets.
 
 By default fetches a bounded slice of data (bills, votes, debates, committees)
-for verification before turning on the full pipelines.
-Pass --full to pull the entire 2025 dataset for the specified flows.
+for verification before turning on the full pipelines. Pass --full to pull the
+entire dataset for the configured calendar year window (defaults to 2025).
 
 Usage:
     PYTHONIOENCODING=utf-8 python scripts/backfill_2025_sample.py [--full]
@@ -45,8 +45,9 @@ from src.db.session import async_session_factory
 from src.db.repositories.committee_repository import CommitteeRepository
 
 
-START_2025 = datetime(2025, 1, 1)
-END_2025 = datetime(2025, 12, 31, 23, 59, 59)
+# Default backfill window (can be overridden via CLI/Prefect parameters)
+DEFAULT_START_YEAR = 2025
+DEFAULT_END_YEAR = 2025
 
 # Parliament and session defaults can be overridden via CLI flags or Prefect parameters.
 PARLIAMENT_FALLBACK = 45
@@ -123,21 +124,37 @@ async def _resolve_committee_targets(
 
 
 def _resolve_limit(
-    requested: int | None, *, full_run: bool, domain: str
+    requested: int | None,
+    *,
+    full_run: bool,
+    domain: str,
+    year_span: int = 1,
 ) -> int:
-    """
-    Resolve an effective limit for a particular domain.
-    """
-    if full_run:
-        limits = FULL_YEAR_LIMITS
-        if requested is None or requested <= 0:
-            return limits[domain]
-        return max(requested, limits[domain])
+    """Resolve an effective limit for a particular domain."""
+    base_map = FULL_YEAR_LIMITS if full_run else SAMPLE_LIMITS
+    base_value = base_map[domain]
 
-    # Sample run defaults
-    if requested is not None:
-        return requested
-    return SAMPLE_LIMITS[domain]
+    if full_run:
+        base_value *= max(1, year_span)
+
+    if requested is not None and requested > 0:
+        return max(requested, base_value)
+
+    return base_value
+
+
+def _resolve_window(args: argparse.Namespace) -> tuple[datetime, datetime, int]:
+    start_year = getattr(args, "start_year", None) or DEFAULT_START_YEAR
+    end_year = getattr(args, "end_year", None) or DEFAULT_END_YEAR
+
+    if start_year > end_year:
+        start_year, end_year = end_year, start_year
+
+    window_start = datetime(start_year, 1, 1)
+    window_end = datetime(end_year, 12, 31, 23, 59, 59)
+    span_years = end_year - start_year + 1
+
+    return window_start, window_end, span_years
 
 async def _fetch_latest_parliament_session(
     logger: logging.Logger,
@@ -211,7 +228,7 @@ async def _fetch_latest_parliament_session(
 
 async def backfill_2025(args: argparse.Namespace) -> Dict[str, Any]:
     """
-    Run a limited backfill for the 2025 calendar year.
+    Run a bounded backfill across the requested calendar year window.
 
     Returns:
         Aggregated results keyed by data domain.
@@ -220,6 +237,14 @@ async def backfill_2025(args: argparse.Namespace) -> Dict[str, Any]:
     logger = logging.getLogger("backfill_2025")
     results: Dict[str, Any] = {}
     full_run = bool(getattr(args, "full", False))
+
+    window_start, window_end, span_years = _resolve_window(args)
+    logger.info(
+        "Resolved backfill window: start=%s end=%s span_years=%s",
+        window_start.date(),
+        window_end.date(),
+        span_years,
+    )
 
     parliament_input = getattr(args, "parliament", None)
     if isinstance(parliament_input, str):
@@ -256,7 +281,10 @@ async def backfill_2025(args: argparse.Namespace) -> Dict[str, Any]:
     )
 
     politician_limit = _resolve_limit(
-        getattr(args, "politician_limit", None), full_run=full_run, domain="politicians"
+        getattr(args, "politician_limit", None),
+        full_run=full_run,
+        domain="politicians",
+        year_span=span_years,
     )
     results["politicians"] = await fetch_politicians_flow(
         limit=politician_limit,
@@ -264,27 +292,42 @@ async def backfill_2025(args: argparse.Namespace) -> Dict[str, Any]:
     )
 
     # Bills (limit to 2025 introductions)
-    bill_limit = _resolve_limit(args.bill_limit, full_run=full_run, domain="bills")
+    bill_limit = _resolve_limit(
+        args.bill_limit,
+        full_run=full_run,
+        domain="bills",
+        year_span=span_years,
+    )
     results["bills"] = await fetch_bills_flow(
         parliament=None,
         session=None,
         limit=bill_limit,
-        introduced_after=START_2025,
-        introduced_before=END_2025,
+        introduced_after=window_start,
+        introduced_before=window_end,
     )
 
     # Votes (limit to 2025 vote dates)
-    vote_limit = _resolve_limit(args.vote_limit, full_run=full_run, domain="votes")
+    vote_limit = _resolve_limit(
+        args.vote_limit,
+        full_run=full_run,
+        domain="votes",
+        year_span=span_years,
+    )
     results["votes"] = await fetch_votes_with_records_flow(
         parliament=parliament,
         session=session,
         limit=vote_limit,
         fetch_records=True,
-        start_date=START_2025,
+        start_date=window_start,
     )
 
     # Debates (latest few batches scoped to current parliament/session)
-    debate_limit = _resolve_limit(args.debate_limit, full_run=full_run, domain="debates")
+    debate_limit = _resolve_limit(
+        args.debate_limit,
+        full_run=full_run,
+        domain="debates",
+        year_span=span_years,
+    )
     results["debates"] = await fetch_debates_with_speeches_flow(
         limit=debate_limit,
         parliament=parliament,
@@ -300,12 +343,18 @@ async def backfill_2025(args: argparse.Namespace) -> Dict[str, Any]:
     # Committees are mostly static, but we fetch a fresh snapshot plus
     # key committee meetings for the same parliament/session.
     committee_limit = _resolve_limit(
-        args.committee_limit, full_run=full_run, domain="committees"
+        args.committee_limit,
+        full_run=full_run,
+        domain="committees",
+        year_span=span_years,
     )
     results["committees"] = await fetch_all_committees_flow(limit=committee_limit)
 
     meeting_limit = _resolve_limit(
-        args.meetings_limit, full_run=full_run, domain="meetings"
+        args.meetings_limit,
+        full_run=full_run,
+        domain="meetings",
+        year_span=span_years,
     )
 
     committee_targets = await _resolve_committee_targets(
@@ -329,10 +378,14 @@ async def backfill_2025(args: argparse.Namespace) -> Dict[str, Any]:
     return results
 
 
-def _format_summary(results: Dict[str, Any]) -> str:
+def _format_summary(
+    results: Dict[str, Any], *, start_year: int, end_year: int
+) -> str:
     """Pretty-print a condensed summary to stdout."""
     lines: List[str] = []
-    lines.append("\n=== 2025 SAMPLE BACKFILL SUMMARY ===")
+    lines.append(
+        f"\n=== BACKFILL SUMMARY ({start_year}-{end_year}) ==="
+    )
     for domain, payload in results.items():
         status = "unknown"
         counts: List[str] = []
@@ -350,7 +403,9 @@ def _format_summary(results: Dict[str, Any]) -> str:
 
 async def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Run a 2025 backfill against pgvector (sample by default, full dataset with --full)."
+        description=(
+            "Run a bounded backfill against pgvector (sample by default, full dataset with --full)."
+        )
     )
     parser.add_argument("--bill-limit", type=int, default=None, help="Number of bills to fetch")
     parser.add_argument("--vote-limit", type=int, default=None, help="Number of votes to fetch")
@@ -384,14 +439,31 @@ async def main() -> None:
         help="Session number to target (default: auto/all sessions).",
     )
     parser.add_argument(
+        "--start-year",
+        type=int,
+        default=None,
+        help=(
+            "First calendar year to include (default: 2025; accepts values as far back as OpenParliament allows)."
+        ),
+    )
+    parser.add_argument(
+        "--end-year",
+        type=int,
+        default=None,
+        help=(
+            "Final calendar year to include (default: start year)."
+        ),
+    )
+    parser.add_argument(
         "--full",
         action="store_true",
-        help="Fetch the full 2025 dataset (overrides default sample limits).",
+        help="Fetch the full dataset for the specified year window (overrides default sample limits).",
     )
     args = parser.parse_args()
 
     results = await backfill_2025(args)
-    print(_format_summary(results))
+    start_dt, end_dt, _ = _resolve_window(args)
+    print(_format_summary(results, start_year=start_dt.year, end_year=end_dt.year))
 
 
 if __name__ == "__main__":

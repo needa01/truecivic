@@ -7,7 +7,7 @@ from typing import Optional
 from sqlalchemy import Column, Integer, String, DateTime, Text, Time, ForeignKey
 from sqlalchemy.orm import relationship
 
-from models.base import Base
+from src.db.models import Base
 
 
 class Debate(Base):
@@ -73,7 +73,7 @@ class Speech(Base):
     
     # Relationships
     debate = relationship("Debate", back_populates="speeches")
-    politician = relationship("Politician", back_populates="speeches")
+    politician = relationship("PoliticianModel")
     
     def __repr__(self) -> str:
         return f"<Speech(id={self.id}, debate_id={self.debate_id}, speaker='{self.speaker_name}', seq={self.sequence})>"

@@ -66,6 +66,104 @@ deployments:
       - daily
     description: "Monitor fetch operations daily at 3 AM UTC"
 
+  # Hourly vote ingestion (lightweight)
+  - name: fetch-votes-hourly
+    entrypoint: src/prefect_flows/vote_with_records_flow.py:fetch_latest_votes_hourly_flow
+    work_pool:
+      name: default-agent-pool
+    schedule:
+      cron: "10 * * * *" # Every hour at minute 10 (offset from bills)
+      timezone: "UTC"
+    parameters:
+      limit: 40
+      start_date: null
+    tags:
+      - production
+      - votes
+      - hourly
+    description: "Fetch the latest votes each hour with conservative limits"
+
+  # Daily vote ingestion with records
+  - name: fetch-votes-daily
+    entrypoint: src/prefect_flows/vote_with_records_flow.py:fetch_votes_with_records_flow
+    work_pool:
+      name: default-agent-pool
+    schedule:
+      cron: "40 2 * * *" # Daily at 02:40 AM UTC
+      timezone: "UTC"
+    parameters:
+      parliament: 45
+      session: null
+      limit: 150
+      fetch_records: true
+      start_date: null
+    tags:
+      - production
+      - votes
+      - daily
+    description: "Daily vote ingestion with full record fetch and rate-aware limits"
+
+  # Hourly debate ingestion (recent snapshots)
+  - name: fetch-debates-hourly
+    entrypoint: src/prefect_flows/debate_flow.py:fetch_recent_debates_flow
+    work_pool:
+      name: default-agent-pool
+    schedule:
+      cron: "20 * * * *" # Every hour at minute 20
+      timezone: "UTC"
+    parameters:
+      limit: 20
+    tags:
+      - production
+      - debates
+      - hourly
+    description: "Fetch the most recent debates hourly to keep speech data fresh"
+
+  # Daily debates with full speech capture
+  - name: fetch-debates-daily
+    entrypoint: src/prefect_flows/debate_flow.py:fetch_debates_with_speeches_flow
+    work_pool:
+      name: default-agent-pool
+    schedule:
+      cron: "15 1 * * *" # Daily at 01:15 AM UTC
+      timezone: "UTC"
+    parameters:
+      limit: 12
+      parliament: null
+      session: null
+    tags:
+      - production
+      - debates
+      - daily
+    description: "Daily sweep of debates with speech extraction"
+
+  # Daily committee ingestion and targeted meetings
+  - name: fetch-committees-daily
+    entrypoint: src/prefect_flows/committee_flow.py:fetch_all_committees_daily_flow
+    work_pool:
+      name: default-agent-pool
+    schedule:
+      cron: "0 4 * * *" # Daily at 04:00 AM UTC
+      timezone: "UTC"
+    tags:
+      - production
+      - committees
+      - daily
+    description: "Refresh committee metadata daily"
+
+  - name: fetch-committee-meetings-daily
+    entrypoint: src/prefect_flows/committee_flow.py:fetch_top_committees_meetings_daily_flow
+    work_pool:
+      name: default-agent-pool
+    schedule:
+      cron: "30 4 * * *" # Daily at 04:30 AM UTC
+      timezone: "UTC"
+    tags:
+      - production
+      - committees
+      - daily
+    description: "Fetch recent meetings for key committees each day"
+
   # On-demand parliament/session backfill
   - name: backfill-parliament-session
     entrypoint: src/prefect_flows/bill_flows.py:fetch_parliament_session_bills_flow
@@ -90,14 +188,37 @@ deployments:
       debate_limit: null
       committee_limit: null
       meetings_limit: null
+      politician_limit: null
       parliament: null
       session: null
       full: true
+      start_year: null
+      end_year: null
     tags:
       - backfill
       - manual
       - 2025
     description: "Run the scoped 2025 backfill (adjust limits when triggering manually)"
+
+  # Decade-scale backfill convenience deployment
+  - name: backfill-decade
+    entrypoint: src/prefect_flows/backfill_flow.py:backfill_decade_flow
+    work_pool:
+      name: default-agent-pool
+    parameters:
+      bill_limit: null
+      vote_limit: null
+      debate_limit: null
+      committee_limit: null
+      meetings_limit: null
+      politician_limit: null
+      parliament: null
+      session: null
+    tags:
+      - backfill
+      - manual
+      - decade
+    description: "Backfill a decade of parliamentary data (2015-2025) with safe throttles"
 
   # Every-six-hour document embedding generation
   - name: generate-document-embeddings

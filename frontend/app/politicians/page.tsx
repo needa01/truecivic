@@ -4,14 +4,14 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { Loader2, Users } from 'lucide-react';
-import { apiClient, PoliticianListResponse } from '@/lib/api-client';
+import { apiClient, PoliticianListResponse, ApiClientError } from '@/lib/api-client';
 
 const PAGE_SIZE = 30;
 
 export default function PoliticiansPage() {
   const [page, setPage] = useState(0);
 
-  const { data, isLoading, isError, isFetching } = useQuery<PoliticianListResponse>({
+  const { data, isLoading, isError, isFetching, error } = useQuery<PoliticianListResponse, ApiClientError>({
     queryKey: ['politicians', { page }],
     queryFn: () =>
       apiClient.getPoliticians({
@@ -24,6 +24,7 @@ export default function PoliticiansPage() {
   const hasMore = data?.has_more ?? false;
   const total = data?.total ?? 0;
   const totalPages = total ? Math.ceil(total / PAGE_SIZE) : 1;
+  const errorMessage = error?.message ?? 'Run the ingestion pipeline or check the API connection.';
 
   return (
     <div className="min-h-screen bg-slate-950/40 text-slate-100">
@@ -47,7 +48,8 @@ export default function PoliticiansPage() {
           </div>
         ) : isError ? (
           <div className="rounded-2xl border border-red-900/40 bg-red-900/10 p-6 text-red-200">
-            Unable to load politicians. Run the ingestion pipeline or check the API connection.
+            <p className="font-semibold">Unable to load politicians.</p>
+            <p className="mt-2 text-sm text-red-100/80">{errorMessage}</p>
           </div>
         ) : !data?.politicians?.length ? (
           <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6 text-slate-400">

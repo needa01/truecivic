@@ -4,7 +4,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { ArrowLeft, ExternalLink, Loader2 } from 'lucide-react';
-import { apiClient, Politician } from '@/lib/api-client';
+import { apiClient, Politician, ApiClientError } from '@/lib/api-client';
 
 function formatDate(value: string | null | undefined) {
   if (!value) return '—';
@@ -25,11 +25,12 @@ export default function PoliticianDetailPage() {
   const idParam = Array.isArray(params?.id) ? params.id[0] : params?.id;
   const politicianId = Number(idParam);
 
-  const { data, isLoading, isError } = useQuery<Politician>({
+  const { data, isLoading, isError, error } = useQuery<Politician, ApiClientError>({
     queryKey: ['politician', politicianId],
     queryFn: () => apiClient.getPoliticianById(politicianId),
     enabled: Number.isFinite(politicianId),
   });
+  const errorMessage = error?.message ?? 'Ensure politicians have been ingested.';
 
   if (!Number.isFinite(politicianId)) {
     return (
@@ -61,7 +62,8 @@ export default function PoliticianDetailPage() {
           </div>
         ) : isError || !data ? (
           <div className="rounded-2xl border border-red-900/40 bg-red-900/10 p-6 text-red-200">
-            Unable to load this profile. Ensure politicians have been ingested.
+            <p className="font-semibold">Unable to load this profile.</p>
+            <p className="mt-2 text-sm text-red-100/80">{errorMessage}</p>
           </div>
         ) : (
           <div className="rounded-3xl border border-slate-800 bg-slate-900/40 p-8 backdrop-blur space-y-6">

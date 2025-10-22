@@ -6,8 +6,46 @@
  * frontend can consume metadata like `has_more`, `limit`, and `offset`.
  */
 
+// MARK: Client configuration -------------------------------------------------
 const rawBaseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1/ca';
 const API_BASE_URL = rawBaseUrl.replace(/\/$/, '');
+const DEFAULT_API_KEY = (process.env.NEXT_PUBLIC_API_KEY ?? '').trim() || null;
+
+// MARK: Error handling -------------------------------------------------------
+
+export interface ApiClientErrorParams {
+  status: number;
+  statusText: string;
+  detail?: string;
+  body: unknown;
+  headers: Headers;
+}
+
+export class ApiClientError extends Error {
+  public readonly status: number;
+  public readonly statusText: string;
+  public readonly detail?: string;
+  public readonly body: unknown;
+  public readonly headers: Record<string, string>;
+
+  constructor(message: string, params: ApiClientErrorParams) {
+    super(message);
+    this.name = 'ApiClientError';
+    this.status = params.status;
+    this.statusText = params.statusText;
+    this.detail = params.detail;
+    this.body = params.body;
+    this.headers = {};
+
+    params.headers.forEach((value, key) => {
+      this.headers[key.toLowerCase()] = value;
+    });
+  }
+
+  get rateLimitLimit(): string | undefined {
+    return this.headers['x-ratelimit-limit'];
+  }
+}
 
 export interface Bill {
   id: number;
@@ -47,7 +85,6 @@ export interface BillListResponse {
   offset: number;
   has_more: boolean;
 }
-
 export interface Politician {
   id: number;
   jurisdiction: string;
@@ -73,7 +110,6 @@ export interface PoliticianListResponse {
   offset: number;
   has_more: boolean;
 }
-
 export interface VoteRecord {
   natural_id: string;
   jurisdiction: string;
@@ -111,7 +147,6 @@ export interface VoteListResponse {
   skip: number;
   limit: number;
 }
-
 export interface Speech {
   natural_id: string;
   jurisdiction: string;
@@ -151,7 +186,6 @@ export interface DebateListResponse {
   skip: number;
   limit: number;
 }
-
 export interface Committee {
   natural_id: string;
   jurisdiction: string;
@@ -177,7 +211,6 @@ export interface CommitteeList {
   skip: number;
   limit: number;
 }
-
 export interface CommitteeMeeting {
   id: number;
   committee_id: number;
@@ -210,30 +243,94 @@ type RequestOptions = RequestInit & { signal?: AbortSignal };
 
 class ApiClient {
   private baseUrl: string;
+  private apiKey: string | null;
 
-  constructor(baseUrl: string = API_BASE_URL) {
+  constructor(baseUrl: string = API_BASE_URL, apiKey: string | null = DEFAULT_API_KEY) {
     this.baseUrl = baseUrl;
+    this.apiKey = apiKey?.trim() || null;
     if (process.env.NODE_ENV !== 'production') {
       // eslint-disable-next-line no-console
       console.info('🔗 API Client base URL:', this.baseUrl);
+      if (!this.apiKey) {
+        // eslint-disable-next-line no-console
+        console.warn('⚠️  API client is running without an API key. Set NEXT_PUBLIC_API_KEY to avoid 401 responses.');
+      }
     }
   }
 
-  private async request<T>(endpoint: string, options?: RequestOptions): Promise<T> {
-    const url = `${this.baseUrl}${endpoint}`;
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(options?.headers || {}),
-      },
-    });
+  setApiKey(apiKey: string | null | undefined) {
+    this.apiKey = apiKey?.trim() || null;
+  }
 
-    if (!response.ok) {
-      throw new Error(`API Error: ${response.status} ${response.statusText}`);
+  getApiKey(): string | null {
+    return this.apiKey;
+  }
+
+  private buildHeaders(existing?: HeadersInit): Headers {
+    const headers = new Headers();
+    headers.set('Content-Type', 'application/json');
+
+    if (existing) {
+      const incoming = new Headers(existing);
+      incoming.forEach((value, key) => {
+        headers.set(key, value);
+      });
     }
 
-    return (await response.json()) as T;
+    if (this.apiKey) {
+      headers.set('X-API-Key', this.apiKey);
+    }
+
+    return headers;
+  }
+
+  private async request<T>(endpoint: string, options?: RequestOptions): Promise<T> {
+  const url = `${this.baseUrl}${endpoint}`;
+    const response = await fetch(url, {
+      ...(options ?? {}),
+      headers: this.buildHeaders(options?.headers),
+    });
+
+    const contentType = response.headers.get('content-type') ?? '';
+    const isJson = contentType.includes('application/json');
+    const payload = isJson ? await response.json() : await response.text();
+
+    if (!response.ok) {
+      let detail: string | undefined;
+
+      if (typeof payload === 'object' && payload !== null) {
+        const payloadDetail = (payload as Record<string, unknown>).detail;
+        if (typeof payloadDetail === 'string') {
+          detail = payloadDetail;
+        }
+      } else if (typeof payload === 'string' && payload.trim()) {
+        detail = payload.trim();
+      }
+
+      let message = detail || `API Error: ${response.status} ${response.statusText}`;
+      if (response.status === 401) {
+        if (this.apiKey) {
+          message = detail || 'Authentication failed. Verify the configured API key.';
+        } else {
+          message =
+            'Authentication required. Set NEXT_PUBLIC_API_KEY in your frontend environment before retrying.';
+        }
+      } else if (response.status === 429) {
+        const retryAfter = response.headers.get('retry-after');
+        const retryMessage = retryAfter ? ` Retry after ${retryAfter} seconds.` : '';
+        message = detail || `Rate limit exceeded.${retryMessage}`;
+      }
+
+      throw new ApiClientError(message, {
+        status: response.status,
+        statusText: response.statusText,
+        detail,
+        body: payload,
+        headers: response.headers,
+      });
+    }
+
+    return payload as T;
   }
 
   // Bills --------------------------------------------------------------------

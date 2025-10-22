@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
 import { FileText, Loader2 } from 'lucide-react';
-import { apiClient, BillListResponse } from '@/lib/api-client';
+import { apiClient, BillListResponse, ApiClientError } from '@/lib/api-client';
 
 const PAGE_SIZE = 25;
 const DEFAULT_PARLIAMENT = 44;
@@ -26,7 +26,7 @@ function formatDate(value: string | null) {
 export default function BillsPage() {
   const [page, setPage] = useState(0);
 
-  const { data, isLoading, isError, isFetching } = useQuery<BillListResponse>({
+  const { data, isLoading, isError, isFetching, error } = useQuery<BillListResponse, ApiClientError>({
     queryKey: ['bills', { page }],
     queryFn: () =>
       apiClient.getBills({
@@ -45,6 +45,7 @@ export default function BillsPage() {
     if (!total) return 1;
     return Math.ceil(total / PAGE_SIZE);
   }, [total]);
+  const errorMessage = error?.message ?? 'Verify the API is running and data ingestion has been executed.';
 
   return (
     <div className="min-h-screen bg-slate-950/40 text-slate-100">
@@ -78,7 +79,8 @@ export default function BillsPage() {
           </div>
         ) : isError ? (
           <div className="rounded-2xl border border-red-900/40 bg-red-900/10 p-6 text-red-200">
-            Unable to load bills. Verify the API is running and data ingestion has been executed.
+            <p className="font-semibold">Unable to load bills.</p>
+            <p className="mt-2 text-sm text-red-100/80">{errorMessage}</p>
           </div>
         ) : !data?.bills?.length ? (
           <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6 text-slate-400">
