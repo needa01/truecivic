@@ -213,23 +213,19 @@ class SpeechRepository:
             if not cleaned or cleaned.lower() in {"null", "none"}:
                 return None
 
-            # Replace trailing Z with UTC designator to keep fromisoformat happy
             if cleaned.endswith("Z"):
                 cleaned = cleaned[:-1] + "+00:00"
 
-            # Try parsing as ISO time first
             try:
                 return time.fromisoformat(cleaned)
             except ValueError:
                 pass
 
-            # Try ISO datetime (with optional timezone)
             try:
                 return datetime.fromisoformat(cleaned).time()
             except ValueError:
                 pass
 
-            # Fallback to common strptime patterns
             patterns = (
                 "%Y-%m-%d %H:%M:%S",
                 "%Y-%m-%dT%H:%M:%S",
@@ -246,7 +242,6 @@ class SpeechRepository:
             logger.warning("Unable to parse speech timestamp: %s", value)
             return None
 
-        # Unsupported type
         logger.warning("Unexpected timestamp type: %s", type(value))
         return None
 
@@ -344,7 +339,6 @@ class SpeechRepository:
         stored_speeches = []
         
         if dialect_name == 'postgresql':
-            # PostgreSQL: Use bulk insert with ON CONFLICT
             try:
                 stmt = pg_insert(SpeechModel).values(normalized_payloads)
                 stmt = stmt.on_conflict_do_update(
@@ -358,22 +352,23 @@ class SpeechRepository:
                         'timestamp_end': stmt.excluded.timestamp_end,
                     }
                 )
-                result = await self.session.execute(stmt)
-                
+
+                await self.session.execute(stmt)
+                await self.session.flush()
+
                 logger.info(
                     f"Batch upserted {len(normalized_payloads)} speeches "
                     f"(PostgreSQL ON CONFLICT)"
                 )
-                
-                # Fetch back the upserted records to return SpeechModel objects
-                debate_ids = set(s.get('debate_id') for s in normalized_payloads)
+
+                debate_ids = {s.get('debate_id') for s in normalized_payloads}
                 for debate_id in debate_ids:
                     speeches = await self.get_by_debate_id(debate_id, limit=10000)
                     stored_speeches.extend(speeches)
-                
-            except Exception as e:
-                logger.error(f"PostgreSQL batch upsert failed: {e}")
-                # Fall through to SQLite approach
+
+            except Exception as exc:
+                logger.error("PostgreSQL batch upsert failed", exc_info=True)
+                await self.session.rollback()
                 for speech_data in normalized_payloads:
                     speech = await self.upsert(speech_data)
                     stored_speeches.append(speech)
