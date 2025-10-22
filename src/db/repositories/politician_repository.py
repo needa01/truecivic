@@ -81,6 +81,10 @@ class PoliticianRepository:
         last_fetched = data.get("last_fetched_at") or data.get("fetched_at")
         data["last_fetched_at"] = _parse_datetime(last_fetched)
 
+        # Remove transient ingestion-only keys that do not map to ORM columns.
+        data.pop("fetched_at", None)
+        data.pop("source", None)
+
         now = datetime.utcnow()
         data.setdefault("created_at", now)
         data["updated_at"] = now
