@@ -122,10 +122,10 @@ export default function DebateDetailPage() {
                               href={`/politicians/${speech.politician_id}`}
                               className="text-indigo-300 hover:underline"
                             >
-                              {speech.speaker_name || speech.politician_id}
+                              {speech.speaker_display_name || speech.speaker_name || speech.politician_id}
                             </Link>
                           ) : (
-                            speech.speaker_name || 'Unknown'
+                            speech.speaker_display_name || speech.speaker_name || 'Unknown'
                           )}
                         </div>
                         <div>{formatDate(speech.speech_time)}</div>
