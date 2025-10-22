@@ -57,6 +57,7 @@ class Speech(Base):
     
     # Speaker Information
     speaker_name = Column(String(200), nullable=False)
+    speaker_display_name = Column(Text, nullable=False)
     
     # Speech Order and Content
     sequence = Column(Integer, nullable=False)  # Order within debate
