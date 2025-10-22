@@ -372,11 +372,14 @@ class OpenParliamentDebatesAdapter(BaseAdapter[Dict[str, Any]]):
             elif content.get("en") and not content.get("fr"):
                 language = "en"
 
+        display_attribution = attribution.get("en") or attribution.get("fr")
+
         return {
             "speech_id": speech_id,
             "debate_path": debate_path,
             "politician_slug": politician_slug,
-            "speaker_name": attribution.get("en") or attribution.get("fr"),
+            "speaker_name": display_attribution,
+            "speaker_display_name": display_attribution,
             "language": language,
             "sequence": seq_value,
             "text_content": text_primary,
