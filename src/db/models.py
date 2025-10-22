@@ -499,6 +499,7 @@ class SpeechModel(Base):
     debate_id: Mapped[int] = mapped_column(Integer, ForeignKey('debates.id'), nullable=False, index=True)
     politician_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('politicians.id'), nullable=True, index=True)
     speaker_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    speaker_display_name: Mapped[str] = mapped_column(Text, nullable=False)
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     language: Mapped[Optional[str]] = mapped_column(String(2), nullable=True)
     text_content: Mapped[str] = mapped_column(Text, nullable=False)
