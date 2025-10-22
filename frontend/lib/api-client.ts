@@ -121,6 +121,7 @@ export interface Speech {
   content_fr: string | null;
   speech_time: string | null;
   speaker_name: string | null;
+  speaker_display_name: string | null;
   speaker_role: string | null;
   sequence: number;
   created_at: string;
