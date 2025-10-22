@@ -21,6 +21,7 @@ class SpeechResponse(BaseModel):
     politician_id: Optional[int] = None
     sequence: int
     speaker_name: Optional[str] = None
+    speaker_display_name: Optional[str] = None
     speaker_role: Optional[str] = None
     text_content: Optional[str] = None
     language: Optional[str] = None
