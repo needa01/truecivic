@@ -20,6 +20,16 @@ export default function Home() {
       }),
   });
 
+  const {
+    data: overviewStats,
+    isLoading: overviewLoading,
+    isError: overviewError,
+  } = useQuery({
+    queryKey: ['overview-stats'],
+    queryFn: () => apiClient.getOverviewStats(),
+    staleTime: 5 * 60 * 1000,
+  });
+
   const { data: committeesData, isLoading: committeesLoading, isError: committeesError } = useQuery({
     queryKey: ['committees', { limit: 6 }],
     queryFn: () => apiClient.getCommittees({ limit: 6 }),
@@ -29,37 +39,42 @@ export default function Home() {
     {
       icon: FileText,
       label: 'Bills',
-      value: billsData?.total || 0,
+      value: overviewStats?.bills ?? billsData?.total ?? 0,
       color: 'from-blue-500 to-cyan-500',
       href: '/bills',
+      loading: overviewLoading && !overviewStats && !billsData,
     },
     {
       icon: Gavel,
       label: 'Committees',
-      value: committeesData?.total || 0,
+      value: overviewStats?.committees ?? committeesData?.total ?? 0,
       color: 'from-indigo-500 to-purple-500',
       href: '/committees',
+      loading: overviewLoading && !overviewStats && !committeesData,
     },
     {
       icon: Users,
       label: 'Politicians',
-      value: 338,
+      value: overviewStats?.politicians ?? 0,
       color: 'from-purple-500 to-pink-500',
       href: '/politicians',
+      loading: overviewLoading && !overviewStats,
     },
     {
       icon: Vote,
       label: 'Votes',
-      value: 0,
+      value: overviewStats?.votes ?? 0,
       color: 'from-emerald-500 to-teal-500',
       href: '/votes',
+      loading: overviewLoading && !overviewStats,
     },
     {
       icon: MessageSquare,
       label: 'Debates',
-      value: 0,
+      value: overviewStats?.debates ?? 0,
       color: 'from-orange-500 to-red-500',
       href: '/debates',
+      loading: overviewLoading && !overviewStats,
     },
   ];
 
@@ -100,7 +115,13 @@ export default function Home() {
                       <ArrowRight className="w-5 h-5 text-slate-600 group-hover:text-slate-400 transition-all duration-300" />
                     </div>
                     <div className="space-y-1">
-                      <p className="text-3xl font-bold text-slate-100">{stat.value.toLocaleString()}</p>
+                      <div className="text-3xl font-bold text-slate-100">
+                        {stat.loading ? (
+                          <Loader2 className="w-6 h-6 animate-spin text-slate-400" aria-hidden="true" />
+                        ) : (
+                          stat.value.toLocaleString()
+                        )}
+                      </div>
                       <p className="text-sm text-slate-400">{stat.label}</p>
                     </div>
                   </div>
@@ -109,6 +130,20 @@ export default function Home() {
             </motion.div>
           ))}
         </div>
+        {overviewError ? (
+          <p className="mt-4 text-sm text-amber-300">
+            Unable to fetch live overview statistics. Showing cached values where available.
+          </p>
+        ) : overviewStats?.generated_at ? (
+          <p className="mt-4 text-sm text-slate-500">
+            Stats updated{' '}
+            {new Date(overviewStats.generated_at).toLocaleString('en-CA', {
+              dateStyle: 'medium',
+              timeStyle: 'short',
+            })}
+            .
+          </p>
+        ) : null}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
