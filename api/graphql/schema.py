@@ -333,6 +333,7 @@ class Speech:
     debate_id: int
     politician_id: Optional[int]
     speaker_name: str
+    speaker_display_name: str
     sequence: int
     language: Optional[str]
     text_content: str
@@ -358,6 +359,7 @@ class Speech:
             debate_id=model.debate_id,
             politician_id=model.politician_id,
             speaker_name=model.speaker_name,
+            speaker_display_name=model.speaker_display_name,
             sequence=model.sequence,
             language=model.language,
             text_content=model.text_content,
