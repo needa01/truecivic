@@ -71,8 +71,30 @@ async def list_politicians(
     count_result = await db.execute(count_query)
     total = len(count_result.scalars().all())
     
+    # Manually construct PoliticianResponse objects with required fields
+    politicians_payload = []
+    for p in politicians:
+        politician_dict = {
+            "id": p.id,
+            "jurisdiction": "ca-federal",  # All politicians in this DB are Canadian federal
+            "politician_id": f"ca-federal-politician-{p.id}",  # Generate consistent ID
+            "name": p.name,
+            "given_name": p.given_name,
+            "family_name": p.family_name,
+            "other_names": None,  # Not in database model
+            "current_party": p.current_party,
+            "current_riding": p.current_riding,
+            "gender": p.gender,
+            "photo_url": p.image_url,  # Map image_url to photo_url
+            "memberships": p.memberships,
+            "source_url": None,  # Not in database model
+            "created_at": p.created_at,
+            "updated_at": p.updated_at,
+        }
+        politicians_payload.append(PoliticianResponse(**politician_dict))
+    
     return {
-        "politicians": [PoliticianResponse.from_orm(p) for p in politicians],
+        "politicians": politicians_payload,
         "total": total,
         "limit": limit,
         "offset": offset,
@@ -105,7 +127,25 @@ async def get_politician(
     if not politician:
         raise HTTPException(status_code=404, detail=f"Politician {politician_id} not found")
     
-    return PoliticianResponse.from_orm(politician)
+    # Manually construct PoliticianResponse with required fields
+    politician_dict = {
+        "id": politician.id,
+        "jurisdiction": "ca-federal",
+        "politician_id": f"ca-federal-politician-{politician.id}",
+        "name": politician.name,
+        "given_name": politician.given_name,
+        "family_name": politician.family_name,
+        "other_names": None,
+        "current_party": politician.current_party,
+        "current_riding": politician.current_riding,
+        "gender": politician.gender,
+        "photo_url": politician.image_url,
+        "memberships": politician.memberships,
+        "source_url": None,
+        "created_at": politician.created_at,
+        "updated_at": politician.updated_at,
+    }
+    return PoliticianResponse(**politician_dict)
 
 
 @router.get("/politicians/search")
@@ -138,8 +178,30 @@ async def search_politicians(
     result = await db.execute(query)
     politicians = result.scalars().all()
     
+    # Manually construct PoliticianResponse objects with required fields
+    politicians_payload = []
+    for p in politicians:
+        politician_dict = {
+            "id": p.id,
+            "jurisdiction": "ca-federal",
+            "politician_id": f"ca-federal-politician-{p.id}",
+            "name": p.name,
+            "given_name": p.given_name,
+            "family_name": p.family_name,
+            "other_names": None,
+            "current_party": p.current_party,
+            "current_riding": p.current_riding,
+            "gender": p.gender,
+            "photo_url": p.image_url,
+            "memberships": p.memberships,
+            "source_url": None,
+            "created_at": p.created_at,
+            "updated_at": p.updated_at,
+        }
+        politicians_payload.append(PoliticianResponse(**politician_dict))
+    
     return {
-        "politicians": [PoliticianResponse.from_orm(p) for p in politicians],
+        "politicians": politicians_payload,
         "total": len(politicians),
         "limit": limit,
         "offset": offset,
