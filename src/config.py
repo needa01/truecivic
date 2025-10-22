@@ -192,6 +192,10 @@ class AppConfig(BaseSettings):
     # Environment
     environment: Environment = Field(default=Environment.LOCAL)
     debug: bool = Field(default=True)
+    require_api_key: bool = Field(
+        default=True,
+        description="Require X-API-Key authentication for protected routes"
+    )
     
     # Application metadata
     app_name: str = Field(default="Parliament Explorer")
