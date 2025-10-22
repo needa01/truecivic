@@ -8,7 +8,7 @@ Responsibility: Data access layer for speeches table
 
 import logging
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, time
 from sqlalchemy import select, and_, func, desc, or_, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -196,6 +196,68 @@ class SpeechRepository:
         )
         return result.scalar() or 0
     
+    @staticmethod
+    def _normalize_timestamp(value: Any) -> Optional[time]:
+        """Convert various timestamp formats to time objects accepted by the DB."""
+        if value is None:
+            return None
+
+        if isinstance(value, time):
+            return value
+
+        if isinstance(value, datetime):
+            return value.time()
+
+        if isinstance(value, str):
+            cleaned = value.strip()
+            if not cleaned or cleaned.lower() in {"null", "none"}:
+                return None
+
+            # Replace trailing Z with UTC designator to keep fromisoformat happy
+            if cleaned.endswith("Z"):
+                cleaned = cleaned[:-1] + "+00:00"
+
+            # Try parsing as ISO time first
+            try:
+                return time.fromisoformat(cleaned)
+            except ValueError:
+                pass
+
+            # Try ISO datetime (with optional timezone)
+            try:
+                return datetime.fromisoformat(cleaned).time()
+            except ValueError:
+                pass
+
+            # Fallback to common strptime patterns
+            patterns = (
+                "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%dT%H:%M:%S",
+                "%H:%M:%S",
+                "%H:%M",
+                "%I:%M %p",
+            )
+            for pattern in patterns:
+                try:
+                    return datetime.strptime(cleaned, pattern).time()
+                except ValueError:
+                    continue
+
+            logger.warning("Unable to parse speech timestamp: %s", value)
+            return None
+
+        # Unsupported type
+        logger.warning("Unexpected timestamp type: %s", type(value))
+        return None
+
+    @classmethod
+    def _prepare_payload(cls, speech_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize payload before persistence."""
+        normalized = dict(speech_data)
+        normalized["timestamp_start"] = cls._normalize_timestamp(speech_data.get("timestamp_start"))
+        normalized["timestamp_end"] = cls._normalize_timestamp(speech_data.get("timestamp_end"))
+        return normalized
+
     async def upsert(
         self,
         speech_data: Dict[str, Any]
@@ -211,6 +273,8 @@ class SpeechRepository:
         Returns:
             Created or updated SpeechModel
         """
+        speech_data = self._prepare_payload(speech_data)
+
         # Ensure required fields
         required_fields = ['debate_id', 'speaker_name', 'sequence', 'text_content']
         for field in required_fields:
@@ -263,7 +327,9 @@ class SpeechRepository:
             return []
         
         # Ensure all required fields
-        for speech in speeches_data:
+        normalized_payloads = [self._prepare_payload(s) for s in speeches_data]
+
+        for speech in normalized_payloads:
             required_fields = ['debate_id', 'speaker_name', 'sequence', 'text_content']
             for field in required_fields:
                 if field not in speech:
@@ -280,7 +346,7 @@ class SpeechRepository:
         if dialect_name == 'postgresql':
             # PostgreSQL: Use bulk insert with ON CONFLICT
             try:
-                stmt = pg_insert(SpeechModel).values(speeches_data)
+                stmt = pg_insert(SpeechModel).values(normalized_payloads)
                 stmt = stmt.on_conflict_do_update(
                     constraint='uq_speech_natural_key',
                     set_={
@@ -295,12 +361,12 @@ class SpeechRepository:
                 result = await self.session.execute(stmt)
                 
                 logger.info(
-                    f"Batch upserted {len(speeches_data)} speeches "
+                    f"Batch upserted {len(normalized_payloads)} speeches "
                     f"(PostgreSQL ON CONFLICT)"
                 )
                 
                 # Fetch back the upserted records to return SpeechModel objects
-                debate_ids = set(s.get('debate_id') for s in speeches_data)
+                debate_ids = set(s.get('debate_id') for s in normalized_payloads)
                 for debate_id in debate_ids:
                     speeches = await self.get_by_debate_id(debate_id, limit=10000)
                     stored_speeches.extend(speeches)
@@ -308,13 +374,13 @@ class SpeechRepository:
             except Exception as e:
                 logger.error(f"PostgreSQL batch upsert failed: {e}")
                 # Fall through to SQLite approach
-                for speech_data in speeches_data:
+                for speech_data in normalized_payloads:
                     speech = await self.upsert(speech_data)
                     stored_speeches.append(speech)
         else:
             # SQLite: Individual upserts
-            logger.info(f"Using SQLite fallback for {len(speeches_data)} speeches")
-            for speech_data in speeches_data:
+            logger.info(f"Using SQLite fallback for {len(normalized_payloads)} speeches")
+            for speech_data in normalized_payloads:
                 speech = await self.upsert(speech_data)
                 stored_speeches.append(speech)
         

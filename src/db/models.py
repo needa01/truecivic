@@ -7,7 +7,7 @@ constraints, and relationships.
 Responsibility: Define database schema and ORM mappings
 """
 
-from datetime import datetime
+from datetime import datetime, time
 from typing import Optional, List, Dict
 import sqlalchemy as sa
 from sqlalchemy import (
@@ -502,8 +502,8 @@ class SpeechModel(Base):
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     language: Mapped[Optional[str]] = mapped_column(String(2), nullable=True)
     text_content: Mapped[str] = mapped_column(Text, nullable=False)
-    timestamp_start: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
-    timestamp_end: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    timestamp_start: Mapped[Optional[time]] = mapped_column(sa.Time(), nullable=True)
+    timestamp_end: Mapped[Optional[time]] = mapped_column(sa.Time(), nullable=True)
     
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     
