@@ -310,7 +310,7 @@ class SpeechRepository:
         speech_data = self._prepare_payload(speech_data)
 
         # Ensure required fields
-        required_fields = ['debate_id', 'speaker_name', 'sequence', 'text_content']
+        required_fields = ['debate_id', 'speaker_name', 'speaker_display_name', 'sequence', 'text_content']
         for field in required_fields:
             if field not in speech_data:
                 logger.warning(f"Missing required field: {field}")
@@ -364,9 +364,13 @@ class SpeechRepository:
         normalized_payloads = [self._prepare_payload(s) for s in speeches_data]
 
         for speech in normalized_payloads:
-            required_fields = ['debate_id', 'speaker_name', 'sequence', 'text_content']
+            required_fields = ['debate_id', 'speaker_name', 'speaker_display_name', 'sequence', 'text_content']
             for field in required_fields:
-                if field not in speech:
+                if field not in speech or speech[field] is None:
+                    if field == 'speaker_display_name' and speech.get('speaker_name'):
+                        speech[field] = speech['speaker_name']
+                        continue
+
                     logger.warning(f"Speech missing required field: {field}")
                     speech[field] = None
 
@@ -393,6 +397,7 @@ class SpeechRepository:
                     set_={
                         'politician_id': stmt.excluded.politician_id,
                         'speaker_name': stmt.excluded.speaker_name,
+                        'speaker_display_name': stmt.excluded.speaker_display_name,
                         'language': stmt.excluded.language,
                         'text_content': stmt.excluded.text_content,
                         'timestamp_start': stmt.excluded.timestamp_start,
