@@ -6,6 +6,10 @@ Provides RESTful endpoints for bills, politicians, votes, and debates.
 Responsibility: Main API application setup and configuration
 """
 
+# Load .env BEFORE importing settings (critical for pydantic-settings)
+from dotenv import load_dotenv
+load_dotenv('.env', override=True)
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -62,11 +66,10 @@ else:
     logger.warning("API key middleware disabled; requests will bypass X-API-Key validation")
 
 # Configure rate limiting
-rate_limiter = RateLimiterMiddleware(
-    app,
+app.add_middleware(
+    RateLimiterMiddleware, 
     redis_url=settings.redis_url if hasattr(settings, 'redis_url') else None
 )
-app.add_middleware(RateLimiterMiddleware, redis_url=settings.redis_url if hasattr(settings, 'redis_url') else None)
 
 
 @app.on_event("startup")
@@ -134,7 +137,7 @@ async def global_exception_handler(request, exc):
         status_code=500,
         content={
             "error": "Internal server error",
-            "detail": str(exc) if settings.DEBUG else "An unexpected error occurred"
+            "detail": str(exc) if settings.app.debug else "An unexpected error occurred"
         }
     )
 
