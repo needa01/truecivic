@@ -63,9 +63,11 @@ async def summarize(window_minutes: int, environment: str | None) -> None:
         ),
     }
 
-    db_url = os.environ.get("DATABASE_PUBLIC_URL")
+    db_url = os.environ.get("DATABASE_PUBLIC_URL") or os.environ.get("DATABASE_URL")
     if not db_url:
-        raise RuntimeError("DATABASE_PUBLIC_URL is not set; check environment configuration.")
+        raise RuntimeError(
+            "DATABASE_PUBLIC_URL or DATABASE_URL is not set; check environment configuration."
+        )
 
     connection = await asyncpg.connect(dsn=db_url)
 

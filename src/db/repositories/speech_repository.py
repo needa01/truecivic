@@ -7,9 +7,9 @@ Responsibility: Data access layer for speeches table
 """
 
 import logging
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional, Set, Tuple
 from datetime import datetime, time
-from sqlalchemy import select, and_, func, desc, or_, delete
+from sqlalchemy import select, and_, func, desc, or_, delete, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -253,6 +253,45 @@ class SpeechRepository:
         normalized["timestamp_end"] = cls._normalize_timestamp(speech_data.get("timestamp_end"))
         return normalized
 
+    @staticmethod
+    def _natural_key_tuple(payload: Dict[str, Any]) -> Optional[Tuple[int, int]]:
+        """Return the debate/sequence natural key tuple if available."""
+        debate_id = payload.get("debate_id")
+        sequence = payload.get("sequence")
+        if debate_id is None or sequence is None:
+            return None
+
+        try:
+            return int(debate_id), int(sequence)
+        except (TypeError, ValueError):
+            logger.warning("Invalid natural key values for speech payload: %s", payload)
+            return None
+
+    async def _fetch_by_keys(self, keys: List[Tuple[int, int]]) -> List[SpeechModel]:
+        """Fetch speeches by their natural key order."""
+        if not keys:
+            return []
+
+        # Preserve order while deduplicating keys
+        ordered_unique: List[Tuple[int, int]] = list(dict.fromkeys(keys))
+
+        stmt = select(SpeechModel).where(
+            tuple_(SpeechModel.debate_id, SpeechModel.sequence).in_(ordered_unique)
+        )
+        result = await self.session.execute(stmt)
+        fetched = list(result.scalars().all())
+        lookup = {(item.debate_id, item.sequence): item for item in fetched}
+
+        ordered_results: List[SpeechModel] = []
+        for key in keys:
+            model = lookup.get(key)
+            if model:
+                ordered_results.append(model)
+            else:
+                logger.warning("Speech missing after upsert for key %s", key)
+
+        return ordered_results
+
     async def upsert(
         self,
         speech_data: Dict[str, Any]
@@ -330,6 +369,14 @@ class SpeechRepository:
                 if field not in speech:
                     logger.warning(f"Speech missing required field: {field}")
                     speech[field] = None
+
+        key_order: List[Tuple[int, int]] = []
+        seen_keys: Set[Tuple[int, int]] = set()
+        for speech in normalized_payloads:
+            key = self._natural_key_tuple(speech)
+            if key and key not in seen_keys:
+                seen_keys.add(key)
+                key_order.append(key)
         
         try:
             dialect_name = self.session.bind.dialect.name
@@ -361,10 +408,7 @@ class SpeechRepository:
                     f"(PostgreSQL ON CONFLICT)"
                 )
 
-                debate_ids = {s.get('debate_id') for s in normalized_payloads}
-                for debate_id in debate_ids:
-                    speeches = await self.get_by_debate_id(debate_id, limit=10000)
-                    stored_speeches.extend(speeches)
+                stored_speeches = await self._fetch_by_keys(key_order)
 
             except Exception as exc:
                 logger.error("PostgreSQL batch upsert failed", exc_info=True)
@@ -372,12 +416,16 @@ class SpeechRepository:
                 for speech_data in normalized_payloads:
                     speech = await self.upsert(speech_data)
                     stored_speeches.append(speech)
+                await self.session.flush()
+                stored_speeches = await self._fetch_by_keys(key_order)
         else:
             # SQLite: Individual upserts
             logger.info(f"Using SQLite fallback for {len(normalized_payloads)} speeches")
             for speech_data in normalized_payloads:
                 speech = await self.upsert(speech_data)
                 stored_speeches.append(speech)
+            await self.session.flush()
+            stored_speeches = await self._fetch_by_keys(key_order)
         
         return stored_speeches
     
