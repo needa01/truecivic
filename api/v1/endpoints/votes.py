@@ -73,8 +73,30 @@ async def list_votes(
     result = await db.execute(query)
     votes = result.scalars().all()
     
-    # Convert to Pydantic models
-    vote_list = [Vote.from_orm(vote) for vote in votes]
+    # Convert to Pydantic models - manually construct to add natural_id
+    vote_list = []
+    for vote in votes:
+        vote_dict = {
+            "natural_id": f"ca-federal-{vote.parliament}-{vote.session}-vote-{vote.vote_number}",
+            "jurisdiction": vote.jurisdiction,
+            "parliament": vote.parliament,
+            "session": vote.session,
+            "vote_number": vote.vote_number,
+            "chamber": vote.chamber,
+            "vote_date": vote.vote_date,
+            "vote_description_en": vote.vote_description_en,
+            "vote_description_fr": vote.vote_description_fr,
+            "bill_number": vote.bill_number,
+            "result": vote.result,
+            "yeas": vote.yeas,
+            "nays": vote.nays,
+            "abstentions": vote.abstentions,
+            "source_url": vote.source_url,
+            "created_at": vote.created_at,
+            "updated_at": vote.updated_at,
+            "vote_records": []  # Will be populated if needed
+        }
+        vote_list.append(Vote(**vote_dict))
     
     logger.info(f"Found {len(vote_list)} votes (total: {total})")
     
@@ -99,17 +121,13 @@ async def get_vote(
     """
     logger.info(f"Getting vote: {vote_id}")
     
-    # Build query
+    # Build query - use vote_id (database field) not natural_id
     query = select(VoteModel).where(
         and_(
-            VoteModel.natural_id == vote_id,
+            VoteModel.vote_id == vote_id,
             VoteModel.jurisdiction == "ca-federal"
         )
     )
-    
-    # Optionally load vote records
-    if include_records:
-        query = query.options(selectinload(VoteModel.vote_records))
     
     # Execute query
     result = await db.execute(query)
@@ -118,20 +136,49 @@ async def get_vote(
     if not vote:
         raise HTTPException(status_code=404, detail=f"Vote {vote_id} not found")
     
-    # Convert to Pydantic model
-    vote_data = Vote.from_orm(vote)
+    # Convert to Pydantic model - manually construct to add natural_id
+    vote_dict = {
+        "natural_id": f"ca-federal-{vote.parliament}-{vote.session}-vote-{vote.vote_number}",
+        "jurisdiction": vote.jurisdiction,
+        "parliament": vote.parliament,
+        "session": vote.session,
+        "vote_number": vote.vote_number,
+        "chamber": vote.chamber,
+        "vote_date": vote.vote_date,
+        "vote_description_en": vote.vote_description_en,
+        "vote_description_fr": vote.vote_description_fr,
+        "bill_number": getattr(vote, 'bill_number', None),
+        "result": vote.result,
+        "yeas": vote.yeas,
+        "nays": vote.nays,
+        "abstentions": vote.abstentions,
+        "source_url": getattr(vote, 'source_url', None),
+        "created_at": vote.created_at,
+        "updated_at": vote.updated_at,
+        "vote_records": []
+    }
     
-    # If records requested, fetch them separately if not already loaded
-    if include_records and not vote.vote_records:
-        records_query = select(VoteRecordModel).where(
-            and_(
-                VoteRecordModel.vote_id == vote_id,
-                VoteRecordModel.jurisdiction == "ca-federal"
-            )
-        )
+    # If records requested, fetch them and manually construct
+    if include_records:
+        records_query = select(VoteRecordModel).where(VoteRecordModel.vote_id == vote.id)
         records_result = await db.execute(records_query)
         records = records_result.scalars().all()
-        vote_data.vote_records = [VoteRecord.from_orm(record) for record in records]
+        
+        vote_records = []
+        for record in records:
+            record_dict = {
+                "natural_id": f"ca-federal-{vote.parliament}-{vote.session}-vote-{vote.vote_number}-{record.politician_id}",
+                "jurisdiction": "ca-federal",
+                "vote_id": f"ca-federal-{vote.parliament}-{vote.session}-vote-{vote.vote_number}",
+                "politician_id": record.politician_id,
+                "vote_position": record.vote_position,
+                "created_at": record.created_at,
+                "updated_at": getattr(record, 'updated_at', record.created_at)
+            }
+            vote_records.append(VoteRecord(**record_dict))
+        vote_dict["vote_records"] = vote_records
+    
+    vote_data = Vote(**vote_dict)
     
     logger.info(f"Found vote: {vote_id}")
     return vote_data
@@ -152,10 +199,10 @@ async def get_vote_records(
     """
     logger.info(f"Getting vote records for: {vote_id}")
     
-    # Verify vote exists
+    # Verify vote exists - use vote_id field
     vote_query = select(VoteModel).where(
         and_(
-            VoteModel.natural_id == vote_id,
+            VoteModel.vote_id == vote_id,
             VoteModel.jurisdiction == "ca-federal"
         )
     )
@@ -165,13 +212,8 @@ async def get_vote_records(
     if not vote:
         raise HTTPException(status_code=404, detail=f"Vote {vote_id} not found")
     
-    # Build records query
-    query = select(VoteRecordModel).where(
-        and_(
-            VoteRecordModel.vote_id == vote_id,
-            VoteRecordModel.jurisdiction == "ca-federal"
-        )
-    )
+    # Build records query - vote_id FK is vote.id (integer)
+    query = select(VoteRecordModel).where(VoteRecordModel.vote_id == vote.id)
     
     # Apply filters
     if position:
@@ -184,8 +226,20 @@ async def get_vote_records(
     result = await db.execute(query)
     records = result.scalars().all()
     
-    # Convert to Pydantic models
-    records_list = [VoteRecord.from_orm(record) for record in records]
+    # Convert to Pydantic models - manually construct to add natural_id
+    records_list = []
+    for record in records:
+        record_dict = {
+            "natural_id": f"ca-federal-{vote.parliament}-{vote.session}-vote-{vote.vote_number}-{record.politician_id}",
+            "jurisdiction": "ca-federal",
+            "vote_id": f"ca-federal-{vote.parliament}-{vote.session}-vote-{vote.vote_number}",
+            "politician_id": record.politician_id,
+            "vote_position": record.vote_position,
+            "created_at": record.created_at,
+            "updated_at": getattr(record, 'updated_at', record.created_at)
+        }
+        records_list.append(VoteRecord(**record_dict))
+
     
     logger.info(f"Found {len(records_list)} vote records")
     return records_list
@@ -205,10 +259,15 @@ async def get_votes_by_bill(
     """
     logger.info(f"Getting votes for bill: {bill_number}")
     
-    # Build query
-    query = select(VoteModel).where(
+    # Need to import BillModel for join
+    from src.db.models import BillModel
+    
+    # Build query - join with bills to filter by bill number
+    query = select(VoteModel).join(
+        BillModel, VoteModel.bill_id == BillModel.id
+    ).where(
         and_(
-            VoteModel.bill_number == bill_number,
+            BillModel.number == bill_number,
             VoteModel.jurisdiction == "ca-federal"
         )
     )
@@ -226,8 +285,30 @@ async def get_votes_by_bill(
     result = await db.execute(query)
     votes = result.scalars().all()
     
-    # Convert to Pydantic models
-    vote_list = [Vote.from_orm(vote) for vote in votes]
+    # Convert to Pydantic models - manually construct to add natural_id
+    vote_list = []
+    for vote in votes:
+        vote_dict = {
+            "natural_id": f"ca-federal-{vote.parliament}-{vote.session}-vote-{vote.vote_number}",
+            "jurisdiction": vote.jurisdiction,
+            "parliament": vote.parliament,
+            "session": vote.session,
+            "vote_number": vote.vote_number,
+            "chamber": vote.chamber,
+            "vote_date": vote.vote_date,
+            "vote_description_en": vote.vote_description_en,
+            "vote_description_fr": vote.vote_description_fr,
+            "bill_number": bill_number,  # Use the query parameter
+            "result": vote.result,
+            "yeas": vote.yeas,
+            "nays": vote.nays,
+            "abstentions": vote.abstentions,
+            "source_url": getattr(vote, 'source_url', None),
+            "created_at": vote.created_at,
+            "updated_at": vote.updated_at,
+            "vote_records": []
+        }
+        vote_list.append(Vote(**vote_dict))
     
     logger.info(f"Found {len(vote_list)} votes for bill {bill_number}")
     
