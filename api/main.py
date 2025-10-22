@@ -53,10 +53,13 @@ app.add_middleware(
 )
 
 # Configure API key authentication middleware
-app.add_middleware(
-    APIKeyMiddleware,
-    protected_paths=["/api/v1/"]
-)
+if settings.app.require_api_key:
+    app.add_middleware(
+        APIKeyMiddleware,
+        protected_paths=["/api/v1/"]
+    )
+else:
+    logger.warning("API key middleware disabled; requests will bypass X-API-Key validation")
 
 # Configure rate limiting
 rate_limiter = RateLimiterMiddleware(
@@ -94,6 +97,7 @@ async def root():
         "votes": "/api/v1/ca/votes",
         "debates": "/api/v1/ca/debates",
         "committees": "/api/v1/ca/committees",
+    "overview_stats": "/api/v1/ca/overview/stats",
         "feeds": "/api/v1/ca/feeds",
         "search": "/api/v1/ca/search",
         "graph": "/api/v1/ca/graph",
@@ -136,7 +140,19 @@ async def global_exception_handler(request, exc):
 
 
 # Import and include routers
-from api.v1.endpoints import bills, politicians, votes, debates, committees, feeds, search, graph, preferences, auth
+from api.v1.endpoints import (
+    auth,
+    bills,
+    committees,
+    debates,
+    feeds,
+    graph,
+    overview,
+    politicians,
+    preferences,
+    search,
+    votes,
+)
 
 app.include_router(
     auth.router,
@@ -196,6 +212,12 @@ app.include_router(
     preferences.router,
     prefix="/api/v1/ca",
     tags=["preferences"]
+)
+
+app.include_router(
+    overview.router,
+    prefix="/api/v1/ca",
+    tags=["overview"]
 )
 
 # Mount GraphQL endpoint (if available)
