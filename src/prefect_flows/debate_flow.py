@@ -247,6 +247,32 @@ async def store_speeches_task(
         soup = BeautifulSoup(content, "html.parser")
         return soup.get_text(" ", strip=True)
 
+    def _normalize_speaker_name(value: Optional[str]) -> tuple[str, str]:
+        """Return canonical + display speaker names respecting DB limits."""
+        if not value:
+            return "Unknown speaker", "Unknown speaker"
+
+        collapsed = " ".join(value.split())
+        display_name = collapsed
+
+        if len(collapsed) <= 200:
+            return collapsed, display_name
+
+        canonical = collapsed
+        if "(" in collapsed:
+            base = collapsed.split("(", 1)[0].strip()
+            if base:
+                canonical = base
+
+        canonical = canonical.strip()
+        if len(canonical) > 200:
+            canonical = canonical[:200].rstrip()
+
+        if not canonical:
+            canonical = collapsed[:200].rstrip()
+
+        return canonical, display_name
+
     try:
         async with async_session_factory() as session:
             speech_repo = SpeechRepository(session)
@@ -305,9 +331,16 @@ async def store_speeches_task(
                     or ""
                 )
 
+                raw_speaker = (
+                    speech.get("speaker_display_name")
+                    or speech.get("speaker_name")
+                )
+                canonical_name, display_name = _normalize_speaker_name(raw_speaker)
+
                 payload = {
                     "debate_id": debate_id,
-                    "speaker_name": speech.get("speaker_name") or "Unknown speaker",
+                    "speaker_name": canonical_name,
+                    "speaker_display_name": display_name,
                     "sequence": sequence,
                     "language": language,
                     "text_content": text_content,
