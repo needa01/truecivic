@@ -146,7 +146,13 @@ npm run dev
 /{jurisdiction}/v1/search             # Hybrid search
 /{jurisdiction}/v1/preferences/ignore # Manage device ignores
 ```
+Locally, you would need to run:  
 
+```py
+python -m uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+To enable the backend
 ### GraphQL
 
 ```graphql
