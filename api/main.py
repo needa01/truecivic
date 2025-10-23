@@ -47,18 +47,17 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# Configure CORS - Environment-specific origins
-# Log CORS configuration for debugging
-logger.info(f"CORS Origins configured: {settings.app.cors_origins}")
+# Configure CORS - Allow all origins for debugging
+logger.info("CORS: Allowing all origins (DEBUG MODE)")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.app.cors_origins,  # From config: dev=localhost, prod=specific domains
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-    allow_headers=["*", "X-API-Key"],  # Allow X-API-Key header
-    expose_headers=["*"],  # Expose all headers to client
-    max_age=3600,  # Cache preflight for 1 hour
+    allow_origins=["*"],  # Allow all origins
+    allow_credentials=False,  # Must be False when using allow_origins=["*"]
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=86400,
 )
 
 # Configure API key authentication middleware
