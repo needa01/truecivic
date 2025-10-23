@@ -2,23 +2,8 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
-import { Loader2, Gavel } from 'lucide-react';
-import Link from 'next/link';
-
-const getSourceLabel = (url?: string) => {
-  if (!url) {
-    return 'Source';
-  }
-
-  const normalized = url.toLowerCase();
-  if (normalized.includes('ourcommons.ca')) {
-    return 'Our Commons';
-  }
-  if (normalized.includes('openparliament.ca')) {
-    return 'OpenParliament';
-  }
-  return 'Source';
-};
+import { Loader2, Gavel, AlertCircle } from 'lucide-react';
+import { CommitteeCard } from '@/components/committee-card';
 
 export default function CommitteesPage() {
   const { data, isLoading, isError } = useQuery({
@@ -27,100 +12,63 @@ export default function CommitteesPage() {
   });
 
   return (
-    <div className="min-h-screen bg-slate-950/40 text-slate-100">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        <div className="mb-10">
-          <div className="flex items-center gap-3">
-            <div className="rounded-2xl bg-indigo-500/10 p-2 text-indigo-300">
-              <Gavel className="h-6 w-6" />
+    <div className="min-h-screen bg-gradient-to-b from-surface-primary via-surface-primary to-surface-secondary transition-colors duration-300">
+      {/* Header */}
+      <div className="border-b border-glass bg-surface-primary/40 backdrop-filter backdrop-blur sticky top-16 z-30">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="rounded-lg sm:rounded-xl bg-gradient-to-br from-accent-conservative/20 to-accent-conservative/10 p-2 sm:p-2.5 text-accent-conservative flex-shrink-0">
+              <Gavel className="h-5 w-5 sm:h-6 sm:w-6" />
             </div>
-            <div>
-              <h1 className="text-3xl font-semibold">Parliamentary Committees</h1>
-              <p className="text-sm text-slate-400">
-                Committee slugs now include jurisdiction prefixes for clarity across data products.
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-2xl font-bold text-text-primary truncate">Parliamentary Committees</h1>
+              <p className="text-xs sm:text-sm text-text-secondary mt-0.5 sm:mt-1 line-clamp-1">
+                {data?.committees?.length ?? 0} committees • All parliamentary committees
               </p>
             </div>
           </div>
         </div>
+      </div>
 
+      {/* Main Content */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
         {isLoading ? (
-          <div className="flex items-center justify-center py-20 text-slate-400">
-            <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading committees...
+          <div className="flex flex-col items-center justify-center py-12 sm:py-16 gap-3 text-text-secondary">
+            <Loader2 className="h-8 w-8 animate-spin text-accent-conservative" />
+            <p className="text-sm sm:text-base">Loading committees…</p>
           </div>
         ) : isError ? (
-          <div className="rounded-2xl border border-red-900/40 bg-red-900/10 p-6 text-red-200">
-            Unable to load committees. Please verify the API is running and try again.
+          <div className="rounded-lg sm:rounded-2xl border border-status-failed/30 bg-status-failed/10 p-4 sm:p-6">
+            <div className="flex gap-3">
+              <AlertCircle className="h-5 w-5 text-status-failed flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold text-status-failed text-sm sm:text-base">Unable to load committees</p>
+                <p className="mt-2 text-xs sm:text-sm text-status-failed/80">Please verify the API is running and try again.</p>
+              </div>
+            </div>
           </div>
         ) : !data?.committees?.length ? (
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6 text-slate-400">
-            No committees found. Run the committee ingestion flow to populate this view.
+          <div className="rounded-lg sm:rounded-2xl border border-glass bg-surface-secondary/40 p-6 sm:p-8 text-center">
+            <Gavel className="h-10 sm:h-12 w-10 sm:w-12 text-text-tertiary mx-auto mb-2 sm:mb-3 opacity-50" />
+            <p className="text-sm sm:text-base text-text-secondary">No committees found. Run the committee ingestion flow to populate this view.</p>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-3xl border border-slate-800 bg-slate-900/40 backdrop-blur">
-            <table className="min-w-full divide-y divide-slate-800">
-              <thead className="bg-slate-900/60">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">
-                    Slug
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">
-                    Name
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">
-                    Parliament
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">
-                    Chamber
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">
-                    Acronym
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">
-                    Source
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/80">
-                {data.committees.map((committee) => (
-                  <tr
-                    key={committee.natural_id || committee.committee_slug}
-                    className="hover:bg-slate-900/60 transition-colors"
-                  >
-                    <td className="px-4 py-3 text-sm font-medium text-indigo-200">
-                      <Link
-                        href={`/committees/${encodeURIComponent(
-                          committee.natural_id || committee.committee_slug
-                        )}`}
-                        className="hover:underline"
-                      >
-                        {committee.committee_slug}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-200">
-                      {committee.name_en || committee.acronym_en || 'Unknown'}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-300">
-                      {committee.parliament && committee.session
-                        ? `${committee.parliament}-${committee.session}`
-                        : '--'}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-300">{committee.chamber}</td>
-                    <td className="px-4 py-3 text-sm text-slate-400">
-                      {committee.acronym_en || committee.acronym_fr || '--'}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-indigo-300">
-                      {committee.source_url ? (
-                        <Link href={committee.source_url} target="_blank" className="hover:underline">
-                          {getSourceLabel(committee.source_url)}
-                        </Link>
-                      ) : (
-                        getSourceLabel()
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+            {data.committees.map((committee) => (
+              <CommitteeCard
+                key={committee.natural_id || committee.committee_slug}
+                naturalId={committee.natural_id || committee.committee_slug}
+                slug={committee.committee_slug}
+                nameEn={committee.name_en || null}
+                nameFr={committee.name_fr || null}
+                chamber={committee.chamber}
+                parliament={committee.parliament}
+                session={committee.session}
+                acronymEn={committee.acronym_en || null}
+                acronymFr={committee.acronym_fr || null}
+                sourceUrl={committee.source_url}
+              />
+            ))}
           </div>
         )}
       </div>
