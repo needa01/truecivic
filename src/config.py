@@ -9,7 +9,8 @@ Responsibility: Centralized configuration and environment management
 
 from enum import Enum
 from typing import Optional, List
-from pydantic import Field
+import json
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -213,7 +214,7 @@ class AppConfig(BaseSettings):
     # CORS settings
     cors_origins: List[str] = Field(
         default=["http://localhost:3000", "http://localhost:8000"],
-        description="Allowed CORS origins (comma-separated in env)"
+        description="Allowed CORS origins (JSON list or comma-separated in env)"
     )
     
     # Data refresh intervals (seconds)
@@ -225,6 +226,24 @@ class AppConfig(BaseSettings):
         case_sensitive=False,
         extra="ignore"
     )
+    
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v):
+        """Parse CORS origins from JSON string or comma-separated list"""
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            v = v.strip()
+            # Try parsing as JSON first
+            if v.startswith("["):
+                try:
+                    return json.loads(v)
+                except json.JSONDecodeError:
+                    pass
+            # Fall back to comma-separated
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        return v
 
 
 class Settings(BaseSettings):
