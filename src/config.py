@@ -235,6 +235,9 @@ class AppConfig(BaseSettings):
             return v
         if isinstance(v, str):
             v = v.strip()
+            # Remove outer quotes if present (Railway wraps JSON strings in quotes)
+            if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
+                v = v[1:-1]
             # Try parsing as JSON first
             if v.startswith("["):
                 try:
