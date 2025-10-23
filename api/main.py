@@ -137,12 +137,6 @@ async def health_check():
     }
 
 
-@app.options("/{full_path:path}")
-async def options_handler(full_path: str):
-    """Handle OPTIONS preflight requests for CORS"""
-    return {"status": "ok"}
-
-
 # Exception handler
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
