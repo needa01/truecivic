@@ -1,0 +1,161 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+!frontend/lib/
+!frontend/lib/api-types.ts
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+*.manifest
+*.spec
+pip-log.txt
+pip-delete-this-directory.txt
+.venv/
+venv/
+ENV/
+env/
+.env
+.env.*
+!.env.example
+
+# Dagster
+dagster_home/
+$DAGSTER_HOME/
+dagster.yaml.local
+workspace.yaml.local
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+.vercel
+*.tsbuildinfo
+next-env.d.ts
+.pnpm-debug.log*
+
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
+.tox/
+.hypothesis/
+coverage/
+*.cover
+*.log
+nosetests.xml
+test-results/
+playwright-report/
+playwright/.cache/
+
+# IDEs
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.swp
+*.swo
+*~
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+dump.sql
+backup/
+
+# Local data files (for frontend development)
+.data/
+*.json.local
+
+# MinIO / Object Storage
+minio-data/
+*.parquet.tmp
+
+# Secrets & Config
+secrets/
+*.pem
+*.key
+*.crt
+*.p12
+.secrets
+config.local.*
+railway.json
+
+# Logs
+logs/
+*.log
+combined.log
+error.log
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Documentation builds
+docs/_build/
+site/
+
+# Embeddings & ML artifacts
+*.ckpt
+*.h5
+*.safetensors
+embeddings_cache/
+model_cache/
+
+# RSS cache artifacts
+feed_cache/
+rss_snapshots/
+
+# Exploration & Testing
+exploration/
+exploration-*
+*.exploration.*
+test-outputs/
+scratch/
+sandbox/
+
+# Working Documents (local only)
+PHASE0_COMPLETE.md
+RUNNING.md
+STATUS.md
+TASKLIST.md
+
+# Profiling
+*.prof
+*.lprof
+profile_*.txt
