@@ -48,12 +48,17 @@ app = FastAPI(
 )
 
 # Configure CORS - Environment-specific origins
+# Log CORS configuration for debugging
+logger.info(f"CORS Origins configured: {settings.app.cors_origins}")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.app.cors_origins,  # From config: dev=localhost, prod=specific domains
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*", "X-API-Key"],  # Allow X-API-Key header
+    expose_headers=["*"],  # Expose all headers to client
+    max_age=3600,  # Cache preflight for 1 hour
 )
 
 # Configure API key authentication middleware
@@ -76,6 +81,10 @@ app.add_middleware(
 async def startup_event():
     """Initialize services on startup"""
     logger.info("Starting Parliament Explorer API...")
+    logger.info(f"Environment: {settings.app.environment}")
+    logger.info(f"Debug mode: {settings.app.debug}")
+    logger.info(f"CORS Origins: {settings.app.cors_origins}")
+    logger.info(f"API Key Required: {settings.app.require_api_key}")
     # Initialize rate limiter
     if hasattr(app, 'user_middleware'):
         for middleware in app.user_middleware:
@@ -126,6 +135,12 @@ async def health_check():
         "status": "healthy",
         "service": "parliament-explorer-api"
     }
+
+
+@app.options("/{full_path:path}")
+async def options_handler(full_path: str):
+    """Handle OPTIONS preflight requests for CORS"""
+    return {"status": "ok"}
 
 
 # Exception handler
