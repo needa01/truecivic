@@ -91,7 +91,7 @@ class OpenParliamentBillsAdapter(BaseAdapter[Bill]):
             url = f"{self.BASE_URL}/bills/"
             params: Dict[str, Any] = {
                 "format": "json",
-                "limit": min(limit, 100),  # API max per page
+                "limit": min(limit, 500),  # API max per page
                 "order_by": "-introduced"  # CRITICAL: Latest bills first (DESC)
             }
             
@@ -176,7 +176,7 @@ class OpenParliamentBillsAdapter(BaseAdapter[Bill]):
                 # Check for next page
                 pagination = data.get("pagination", {})
                 next_url = pagination.get("next_url")
-                
+                logger.info(f"Next URL: {next_url}")
                 if next_url:
                     # Handle relative URLs
                     if next_url.startswith("/"):

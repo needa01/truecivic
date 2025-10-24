@@ -75,7 +75,8 @@ async def fetch_bills_task(
             logger.info(
                 f"Fetch complete: {result['bills_fetched']} bills, "
                 f"{result['created']} created, {result['updated']} updated, "
-                f"{result['error_count']} errors"
+                f"{result['error_count']} errors, "
+                f"Errors: {result['errors']}"
             )
             
             return result
