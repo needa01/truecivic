@@ -6,7 +6,7 @@ Provides RESTful endpoints for bills, politicians, votes, and debates.
 Responsibility: Main API application setup and configuration
 """
 
-#
+
 # Load .env BEFORE importing settings (critical for pydantic-settings)
 from dotenv import load_dotenv
 load_dotenv('.env', override=True)
