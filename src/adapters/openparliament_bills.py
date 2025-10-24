@@ -7,6 +7,7 @@ Supports filtering by parliament/session and sorting to get latest bills first.
 Responsibility: Fetch and normalize bills from OpenParliament JSON API
 """
 
+from asyncio.log import logger
 from datetime import datetime
 from typing import Optional, Dict, Any
 import httpx
