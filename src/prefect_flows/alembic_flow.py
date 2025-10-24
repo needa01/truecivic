@@ -12,7 +12,7 @@ from typing import Optional
 from alembic import command
 from alembic.config import Config
 from prefect import flow, task, get_run_logger
-from prefect.task_runners import SequentialTaskRunner
+from prefect.task_runners import sequential_task_runner
 
 
 def _make_alembic_config(config_path: str = "alembic.ini") -> Config:
@@ -66,7 +66,7 @@ def run_alembic_upgrade_task(
 @flow(
     name="alembic-upgrade",
     description="Run Alembic migrations inside the Prefect worker environment.",
-    task_runner=SequentialTaskRunner(),
+    task_runner=sequential_task_runner,
     log_prints=True,
 )
 def alembic_upgrade_flow(
