@@ -39,4 +39,4 @@ jobs:
           PREFECT_API_URL: ${{ secrets.PREFECT_API_URL }}
         run: |
           echo "Running the latest version of backfill-decade flow..."
-          prefect deployment run "backfill-decade"
+          prefect deployment run "backfill-decade/backfill-decade"
