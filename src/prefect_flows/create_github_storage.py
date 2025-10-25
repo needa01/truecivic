@@ -6,6 +6,8 @@ github_block = GitHubRepository(
     reference="main",               # always pull latest main branch
 )
 
-sync_compatible(github_block.save)("truecivic-repo", overwrite=True)
+# Correct usage
+sync_save = sync_compatible(github_block.save)
+sync_save(name="truecivic-repo", overwrite=True)
 
 print("GitHub storage block 'truecivic-repo' created successfully!")
