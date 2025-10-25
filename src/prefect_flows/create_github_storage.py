@@ -1,10 +1,9 @@
-from prefect_github import GitHubRepository
-from prefect.utilities.asyncutils import sync_compatible
+from prefect_github import GitHubRepository 
 
 github_block = GitHubRepository(
-    repository_url="https://github.com/needa01/truecivic",
-    reference="main",
+    repository_url="https://github.com/needa01/truecivic.git",  # your repo
+    reference="main",               # always pull latest main branch
 )
+github_block.save_block("truecivic-repo", overwrite=True)
 
-# Correctly save synchronously
-sync_compatible(github_block.save)("truecivic-repo", overwrite=True)
+print("GitHub storage block 'truecivic-repo' created successfully!")
