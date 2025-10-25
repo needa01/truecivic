@@ -35,4 +35,4 @@ jobs:
         env:
           PREFECT_API_URL: ${{ secrets.PREFECT_API_URL }}
         run: |
-          prefect deployment run "backfill-decade"
+          prefect deployment run "backfill-decade/backfill-decade"
