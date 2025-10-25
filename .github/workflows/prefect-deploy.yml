@@ -19,20 +19,24 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: python -m pip install --upgrade pip && pip install -r requirements.txt
+        run:  python -m pip install --upgrade pip && pip install -r requirements.txt
       
-      - name: Debug PREFECT_API_URL
-        env:
-          PREFECT_API_URL: ${{ secrets.PREFECT_API_URL }}
-        run: echo "PREFECT_API_URL is $PREFECT_API_URL"
+      - name: Check Prefect version and connection
+        run: |
+          prefect version
+          prefect work-pool ls || true
 
-      - name: Prefect deploy all
+      # 6️⃣ Build and apply updated deployments (uses latest repo code)
+      - name: Deploy all Prefect flows
         env:
           PREFECT_API_URL: ${{ secrets.PREFECT_API_URL }}
-        run: prefect deploy --all
+        run: |
+          echo "Deploying updated flows to Prefect Cloud..."
+          prefect deploy --all
 
       - name: Trigger Prefect Flow
         env:
           PREFECT_API_URL: ${{ secrets.PREFECT_API_URL }}
         run: |
-          prefect deploy run "backfill-decade"
+          echo "Running the latest version of backfill-decade flow..."
+          prefect deployment run "backfill-decade"
