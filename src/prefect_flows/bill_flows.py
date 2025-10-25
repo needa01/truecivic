@@ -72,6 +72,9 @@ async def fetch_bills_task(
                 introduced_after=introduced_after,
                 introduced_before=introduced_before,
             )
+            print("Fetching complete")
+            print("DEBUG result keys:", result.keys())
+            print("DEBUG errors value:", result.get("errors"))
             
             logger.info(
                 f"Fetch complete: {result['bills_fetched']} bills, "
@@ -79,6 +82,7 @@ async def fetch_bills_task(
                 f"{result['error_count']} errors, "
                 f"Errors: {result['errors']}"
             )
+            
             
             if result['errors']:
                 logger.error(f"Detailed errors: {json.dumps(result['errors'], indent=2)}")
