@@ -4,6 +4,11 @@ Enhanced Prefect flow for fetching votes with individual MP voting records.
 Orchestrates vote data fetching and storage including individual ballot records.
 """
 
+try:
+    from .create_github_storage import github_block
+except Exception as e:
+    print("GitHub storage block not created yet:", e)
+
 import asyncio
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Tuple, Optional, Set

@@ -5,6 +5,11 @@ Fetches politician records from OpenParliament and persists them using the
 PoliticianRepository.
 """
 
+try:
+    from .create_github_storage import github_block
+except Exception as e:
+    print("GitHub storage block not created yet:", e)
+
 from __future__ import annotations
 
 import asyncio

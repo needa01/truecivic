@@ -5,6 +5,12 @@ Scans the documents table for rows missing embeddings and generates vector
 representations using the EmbeddingService.
 """
 
+try:
+    from .create_github_storage import github_block
+except Exception as e:
+    print("GitHub storage block not created yet:", e)
+    
+
 from __future__ import annotations
 
 import logging

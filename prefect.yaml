@@ -23,6 +23,8 @@ deployments:
     entrypoint: src/prefect_flows/bill_flows.py:fetch_latest_bills_flow
     work_pool:
       name: default-agent-pool
+    storage:
+      block: truecivic-repo
     schedule:
       cron: "0 * * * *" # Every hour at minute 0
       timezone: "UTC"
@@ -39,6 +41,8 @@ deployments:
     entrypoint: src/prefect_flows/bill_flows.py:fetch_latest_bills_flow
     work_pool:
       name: default-agent-pool
+    storage:
+      block: truecivic-repo
     schedule:
       cron: "0 2 * * *" # Daily at 2:00 AM UTC
       timezone: "UTC"
@@ -55,6 +59,8 @@ deployments:
     entrypoint: src/prefect_flows/bill_flows.py:monitor_fetch_operations_flow
     work_pool:
       name: default-agent-pool
+    storage:
+      block: truecivic-repo
     schedule:
       cron: "0 3 * * *" # Daily at 3:00 AM UTC (after fetch)
       timezone: "UTC"
@@ -71,6 +77,8 @@ deployments:
     entrypoint: src/prefect_flows/vote_with_records_flow.py:fetch_latest_votes_hourly_flow
     work_pool:
       name: default-agent-pool
+    storage:
+      block: truecivic-repo
     schedule:
       cron: "10 * * * *" # Every hour at minute 10 (offset from bills)
       timezone: "UTC"
@@ -88,6 +96,8 @@ deployments:
     entrypoint: src/prefect_flows/vote_with_records_flow.py:fetch_votes_with_records_flow
     work_pool:
       name: default-agent-pool
+    storage:
+      block: truecivic-repo
     schedule:
       cron: "40 2 * * *" # Daily at 02:40 AM UTC
       timezone: "UTC"
@@ -108,6 +118,8 @@ deployments:
     entrypoint: src/prefect_flows/debate_flow.py:fetch_recent_debates_flow
     work_pool:
       name: default-agent-pool
+    storage:
+      block: truecivic-repo
     schedule:
       cron: "20 * * * *" # Every hour at minute 20
       timezone: "UTC"
@@ -124,6 +136,8 @@ deployments:
     entrypoint: src/prefect_flows/debate_flow.py:fetch_debates_with_speeches_flow
     work_pool:
       name: default-agent-pool
+    storage:
+      block: truecivic-repo
     schedule:
       cron: "15 1 * * *" # Daily at 01:15 AM UTC
       timezone: "UTC"
@@ -142,6 +156,8 @@ deployments:
     entrypoint: src/prefect_flows/committee_flow.py:fetch_all_committees_daily_flow
     work_pool:
       name: default-agent-pool
+    storage:
+      block: truecivic-repo
     schedule:
       cron: "0 4 * * *" # Daily at 04:00 AM UTC
       timezone: "UTC"
@@ -155,6 +171,8 @@ deployments:
     entrypoint: src/prefect_flows/committee_flow.py:fetch_top_committees_meetings_daily_flow
     work_pool:
       name: default-agent-pool
+    storage:
+      block: truecivic-repo
     schedule:
       cron: "30 4 * * *" # Daily at 04:30 AM UTC
       timezone: "UTC"
@@ -169,6 +187,8 @@ deployments:
     entrypoint: src/prefect_flows/bill_flows.py:fetch_parliament_session_bills_flow
     work_pool:
       name: default-agent-pool
+    storage:
+      block: truecivic-repo
     # No schedule - run manually
     tags:
       - backfill
@@ -181,6 +201,8 @@ deployments:
     entrypoint: src/prefect_flows/backfill_flow.py:backfill_2025_flow
     work_pool:
       name: default-agent-pool
+    storage:
+      block: truecivic-repo
     # No schedule - triggered manually when needed
     parameters:
       bill_limit: null
@@ -205,6 +227,8 @@ deployments:
     entrypoint: src/prefect_flows/backfill_flow.py:backfill_decade_flow
     work_pool:
       name: default-agent-pool
+    storage:
+      block: truecivic-repo
     parameters:
       bill_limit: null
       vote_limit: null
@@ -225,6 +249,8 @@ deployments:
     entrypoint: src/prefect_flows/embedding_flow.py:generate_document_embeddings_flow
     work_pool:
       name: default-agent-pool
+    storage:
+      block: truecivic-repo
     schedule:
       cron: "0 */6 * * *" # Every 6 hours at the top of the hour
       timezone: "UTC"
@@ -247,6 +273,8 @@ deployments:
     entrypoint: src/prefect_flows/alembic_flow.py:alembic_upgrade_flow
     work_pool:
       name: default-agent-pool
+    storage:
+      block: truecivic-repo
     parameters:
       revision: "head"
       config_path: "alembic.ini"

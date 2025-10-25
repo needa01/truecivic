@@ -5,6 +5,11 @@ Provides a deployment-friendly interface so we can trigger the backfill from
 Prefect Cloud / Railway workers with custom limits.
 """
 
+try:
+    from .create_github_storage import github_block
+except Exception as e:
+    print("GitHub storage block not created yet:", e)
+
 import logging
 from argparse import Namespace
 from typing import Any, Optional

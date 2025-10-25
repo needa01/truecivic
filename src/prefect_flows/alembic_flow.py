@@ -5,6 +5,12 @@ Useful for environments (e.g., Railway) where migrations must run from inside
 the application container rather than a local developer machine.
 """
 
+try:
+    from .create_github_storage import github_block
+except Exception as e:
+    print("GitHub storage block not created yet:", e)
+
+
 from datetime import datetime
 import os
 from typing import Optional

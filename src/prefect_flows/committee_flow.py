@@ -4,6 +4,12 @@ Prefect flow for fetching committee and committee meeting data.
 Orchestrates committee data fetching and storage.
 """
 
+try:
+    from .create_github_storage import github_block
+except Exception as e:
+    print("GitHub storage block not created yet:", e)
+    
+
 import asyncio
 from datetime import datetime
 from typing import List, Dict, Any, Optional

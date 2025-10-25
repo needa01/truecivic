@@ -10,6 +10,13 @@ Defines flows for:
 Responsibility: Orchestrate periodic bill data refreshes
 """
 
+try:
+    from .create_github_storage import github_block
+except Exception as e:
+    print("GitHub storage block not created yet:", e)
+    
+    
+    
 from datetime import datetime, timedelta
 import json
 from typing import Dict, Any, Optional
