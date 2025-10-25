@@ -5,10 +5,9 @@ Useful for environments (e.g., Railway) where migrations must run from inside
 the application container rather than a local developer machine.
 """
 
-try:
-    from .create_github_storage import github_block
-except Exception as e:
-    print("GitHub storage block not created yet:", e)
+from src.prefect_flows.create_github_storage import github_block
+# Do NOT call create_github_storage_block() here; just import github_block
+
 
 
 from datetime import datetime
