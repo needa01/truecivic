@@ -14,7 +14,9 @@ pull:
       directory: "/opt/truecivic"
 
 # Push configuration (for storing flow code)
-push: null
+push:
+  - prefect.deployments.steps.push_code_to_block:
+      block_name: truecivic-repo
 
 # Deployment definitions
 deployments:

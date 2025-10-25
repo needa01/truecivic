@@ -6,6 +6,5 @@ github_block = GitHubRepository(
     reference="main",
 )
 
-# Save the block synchronously
+# Correctly save synchronously
 sync_compatible(github_block.save)("truecivic-repo", overwrite=True)
-print("GitHub storage block 'truecivic-repo' created successfully!")
