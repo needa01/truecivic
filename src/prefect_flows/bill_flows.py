@@ -58,7 +58,7 @@ async def fetch_bills_task(
     logger = get_run_logger()
     logger.info("Initializing bill fetch task...by Needa Ansari")
     logger.info(
-        "Starting bill fetch: limit=%s, parliament=%s, session=%s, introduced_after=%s, introduced_before=%s",
+        "Starting bi fetch: limit=%s, parliament=%s, session=%s, introduced_after=%s, introduced_before=%s",
         limit,
         parliament,
         session,
