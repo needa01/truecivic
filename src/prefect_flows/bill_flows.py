@@ -11,6 +11,7 @@ Responsibility: Orchestrate periodic bill data refreshes
 """
 
 from datetime import datetime, timedelta
+import json
 from typing import Dict, Any, Optional
 
 from prefect import flow, task, get_run_logger
@@ -78,6 +79,10 @@ async def fetch_bills_task(
                 f"{result['error_count']} errors, "
                 f"Errors: {result['errors']}"
             )
+            
+            if result['errors']:
+                logger.error(f"Detailed errors: {json.dumps(result['errors'], indent=2)}")
+
             
             return result
     finally:
@@ -296,6 +301,7 @@ async def fetch_bills_flow(
         result.get("created", 0),
         result.get("updated", 0),
     )
+    logger.error(f"Detailed errors: {json.dumps(result['errors'], indent=2)}")
 
     return result
 
