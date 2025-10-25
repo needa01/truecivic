@@ -1,6 +1,6 @@
-from prefect.filesystems import GitHub
+from prefect_github import GitHubRepository 
 
-github_block = GitHub(
+github_block = GitHubRepository(
     repository="needa01/truecivic",  # your repo
     reference="main",               # always pull latest main branch
 )

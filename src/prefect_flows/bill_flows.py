@@ -10,10 +10,7 @@ Defines flows for:
 Responsibility: Orchestrate periodic bill data refreshes
 """
 
-try:
-    from .create_github_storage import github_block
-except Exception as e:
-    print("GitHub storage block not created yet:", e)
+
     
     
     
@@ -27,6 +24,10 @@ from prefect.tasks import task_input_hash
 from src.services.bill_integration_service import BillIntegrationService
 from src.db.session import Database
 
+try:
+    from .create_github_storage import github_block
+except Exception as e:
+    print("GitHub storage block not created yet:", e)
 
 @task(
     name="fetch_bills",
