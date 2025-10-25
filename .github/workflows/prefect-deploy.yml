@@ -30,3 +30,9 @@ jobs:
         env:
           PREFECT_API_URL: ${{ secrets.PREFECT_API_URL }}
         run: prefect deploy --all
+
+      - name: Trigger Prefect Flow
+        env:
+          PREFECT_API_URL: ${{ secrets.PREFECT_API_URL }}
+        run: |
+          prefect deployment run "backfill_decade"
